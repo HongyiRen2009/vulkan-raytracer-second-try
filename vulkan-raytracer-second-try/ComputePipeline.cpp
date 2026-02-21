@@ -55,7 +55,7 @@ namespace my_vulkan
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
 		vkCmdDispatch(commandBuffer, GroupCountX, GroupCountY, GroupCountZ);
 	}
-	void ComputePipeline::AllocateDescriptorSet(int DescriptorCount, vector<VkDescriptorSet>& DescriptorSets) {
+	void ComputePipeline::AllocateDescriptorSets(int DescriptorCount, vector<VkDescriptorSet>& DescriptorSets) {
 		assert(DescriptorCount > 0);
 		DescriptorSets.resize(DescriptorCount);
 		vector<VkDescriptorSetLayout> layouts(DescriptorCount, descriptorSetLayout);

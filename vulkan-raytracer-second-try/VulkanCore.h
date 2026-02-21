@@ -14,6 +14,17 @@ namespace my_vulkan
 {
 
 	void BeginCommandBuffer(VkCommandBuffer commandBuffer, VkCommandBufferUsageFlags usageFlags);
+	class BufferAndMemory {
+		public:
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VkDeviceMemory memory = VK_NULL_HANDLE;
+		VkDeviceSize size = 0;
+		void AddData(VkDevice device, const void* data, size_t size);
+		
+		void Cleanup(VkDevice logicalDevice);
+
+		
+	};
 	class VulkanCore
 	{
 		public:
@@ -23,12 +34,13 @@ namespace my_vulkan
 			void Cleanup();
 			int GetNumSwapChainImages() const { return (int)swapChainImages.size(); }
 			VkImage GetSwapChainImage(uint32_t index) const { return swapChainImages[index]; }
+			VkImageView GetSwapChainImageView(uint32_t index) const { return swapChainImageViews[index]; }
 			VulkanQueue* GetQueue() { return &queue; }
 			uint32_t GetQueueFamilyIndex() const { return (uint32_t)queueFamilyIndex; }
 			VkDevice GetLogicalDevice() const { return logicalDevice; }
-			void CreateCommandBuffers(uint32_t numImages, VkCommandBuffer* commandBuffers);
-
-
+			VkCommandPool GetCommandPool() const { return commandPool; }
+			VkPhysicalDevice GetPhysicalDevice() { return physicalDevices.GetSelectedPhysicalDevice().device; }
+			VkExtent2D surfaceExtent;
 		private:
 			VkInstance instance = VK_NULL_HANDLE;
 			VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;

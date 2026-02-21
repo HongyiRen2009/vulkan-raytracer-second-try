@@ -35,6 +35,7 @@ int main() {
 		vulkanApp.Render();
 		processInput(window);
 	}
+	vulkanApp.Cleanup();
 	glfwTerminate();
 	return 0;
 }

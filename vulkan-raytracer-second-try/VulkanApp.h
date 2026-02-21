@@ -5,10 +5,11 @@
 #include "VulkanApp.h"
 #include "VulkanUtils.h"
 #include "VulkanQueue.h"
-#include "ComputePipeline.h"
+#include "RaytracingComputePipeline.h"
+#include "FrameData.h"
 namespace my_vulkan
 {
-
+	const int MAX_FRAMES_IN_FLIGHT = 2;
 
 	class VulkanApp {
 		public:
@@ -16,16 +17,18 @@ namespace my_vulkan
 			~VulkanApp();
 			void Init(const char* AppName, GLFWwindow* window);
 			void Render();
+			void Cleanup();
 	private:
 		VulkanCore vulkanCore;
 		int numImages = 0;
-		VulkanQueue *queue = nullptr;
-		//ComputePipeline computePipeline;
-		vector<VkCommandBuffer> commandBuffers;
-		vector<VkDescriptorSet> DescriptorSets;
-		void CreateCommandBuffers();
-		void RecordCommandBuffer();
+		VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+		RaytracingComputePipeline rtPipeline;
+		FrameData frameData;
+		VulkanQueue* queue = nullptr;
+		void CreateDescriptorPool();
+		void RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 		void RecordComputeCommandBuffer();
+
 		
 		
 	};

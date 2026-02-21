@@ -8,18 +8,19 @@ namespace my_vulkan
 			VulkanQueue();
 			~VulkanQueue();
 			void Init(VkDevice logicalDevice, VkSwapchainKHR swapChain, uint32_t queueFamilyIndex, uint32_t queueIndex);
-			uint32_t AcquireNextImageKHR();
-			void SubmitSync(VkCommandBuffer commandBuffer);
-			void SubmitAsync(VkCommandBuffer commandBuffer);
-			void Present(uint32_t imageIndex);
+			uint32_t AcquireNextImageKHR(VkSemaphore presentCompleteSemaphore);
+			void SubmitSync(VkCommandBuffer cmd);
+			void SubmitAsync(VkCommandBuffer cmd,
+				VkSemaphore waitSemaphore,
+				VkPipelineStageFlags waitStage,
+				VkSemaphore signalSemaphore,
+				VkFence fence);
+			void Present(uint32_t imageIndex, VkSemaphore waitSemaphore);
 			void WaitIdle();
-			void Cleanup();
+			VkQueue GetQueue() const { return m_queue; }
 		private:
-			void CreateSemaphores();
 			VkQueue m_queue = VK_NULL_HANDLE;
 			VkDevice m_logicalDevice = VK_NULL_HANDLE;
 			VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
-			VkSemaphore renderCompleteSemaphore = VK_NULL_HANDLE;
-			VkSemaphore presentCompleteSemaphore = VK_NULL_HANDLE;
 	};
 }

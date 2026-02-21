@@ -1,0 +1,40 @@
+#pragma once
+#include <vulkan/vulkan.h>
+#include <vector>
+#include "VulkanUtils.h"
+#include <iostream>
+using namespace std;
+namespace my_vulkan
+{
+	class FrameData {
+	public:
+		vector<VkCommandBuffer> commandBuffers;
+		vector<VkSemaphore> imageAvailable;
+		vector<VkSemaphore> renderFinished;
+		vector<VkFence> inFlight;
+		vector<VkImageView> computeOutput;       
+		vector <VkImage> computeOutputImage;
+		vector<VkDescriptorSet> descriptor;
+		FrameData();
+		~FrameData();
+		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames);
+		void InitializeComputeOutputLayouts(VkCommandPool commandPool, VkQueue queue);
+		int AdvanceFrame() {
+			frameIndex = (frameIndex + 1) % numFrames;
+			return frameIndex;
+		}
+		int GetCurrentFrameIndex() const { return frameIndex; }
+		void Cleanup(VkCommandPool commandPool);
+
+	private:
+		void CreateSemaphores();
+		void CreateFences();
+		void CreateCommandBuffers(VkCommandPool commandPool);
+		void CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice);
+		vector<VkDeviceMemory> computeOutputImageMemory;
+		int numFrames = 0;
+		int frameIndex = -1;
+
+		VkDevice logicalDevice = VK_NULL_HANDLE;
+	};
+}

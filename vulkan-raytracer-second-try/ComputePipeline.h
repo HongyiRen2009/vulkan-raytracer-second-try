@@ -12,7 +12,7 @@ namespace my_vulkan
 		void Init(VulkanCore& core, VkDescriptorPool DescriptorPool, const char* ComputeShaderFileName);
 		void Cleanup();
 		void RecordCommandBuffer(VkCommandBuffer commandBuffer, VkDescriptorSet DescriptorSet, uint32_t GroupCountX, uint32_t GroupCountY, uint32_t GroupCountZ);
-		void AllocateDescriptorSet(int DescriptorCount, vector<VkDescriptorSet>& DescriptorSets);
+		void AllocateDescriptorSets(int DescriptorCount, vector<VkDescriptorSet>& DescriptorSets);
 
 	protected:
 		virtual VkDescriptorSetLayout CreateDescriptorSetLayout(VulkanCore& core) = 0;
@@ -26,6 +26,8 @@ namespace my_vulkan
 		VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 		VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
 		VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+		VkBuffer shaderStorageBuffer = VK_NULL_HANDLE;
+		
 
 	};
 }

@@ -3,21 +3,41 @@ using namespace my_vulkan;
 VulkanApp::VulkanApp() {
 }
 VulkanApp::~VulkanApp() {
-		
+
 }
 void VulkanApp::Init(const char* AppName, GLFWwindow* window) {
 	vulkanCore.Init(AppName, window);
-	numImages = vulkanCore.GetNumSwapChainImages();
 	queue = vulkanCore.GetQueue();
-	CreateCommandBuffers();
-	RecordCommandBuffer();
+	numImages = vulkanCore.GetNumSwapChainImages();
+	CreateDescriptorPool();
+	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
+	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT);
+	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
+
+	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
+	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i]);
+	}
 }
-void VulkanApp::CreateCommandBuffers() {
-	commandBuffers.resize(numImages);
-	vulkanCore.CreateCommandBuffers(numImages, commandBuffers.data());
+
+void VulkanApp::CreateDescriptorPool() {
+	VkDescriptorPoolSize poolSizes[]{ {
+			.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+			.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+	} };
+	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+		.poolSizeCount = 1,
+		.pPoolSizes = poolSizes,
+	};
+	VkResult result = vkCreateDescriptorPool(vulkanCore.GetLogicalDevice(), &descriptorPoolCreateInfo, nullptr, &descriptorPool);
+	CHECK_VK_RESULT(result, "vkCreateDescriptorPool");
+	cout << "Descriptor pool created successfully!" << std::endl;
 }
-void VulkanApp::RecordCommandBuffer() {
-	VkClearColorValue clearColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	VkImageSubresourceRange imageRange{
 		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 		.baseMipLevel = 0,
@@ -25,51 +45,103 @@ void VulkanApp::RecordCommandBuffer() {
 		.baseArrayLayer = 0,
 		.layerCount = 1,
 	};
-	for (uint32_t i = 0;i < numImages;i++) {
-		VkImageMemoryBarrier PresentToClearBarrier = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.pNext = nullptr,
-			.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT,
-			.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-			.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image = vulkanCore.GetSwapChainImage(i),
-			.subresourceRange = imageRange,
-		};
-		VkImageMemoryBarrier ClearToPresentBarrier = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.pNext = nullptr,
-			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
-			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image = vulkanCore.GetSwapChainImage(i),
-			.subresourceRange = imageRange,
-		};
-		BeginCommandBuffer(commandBuffers[i], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
-		vkCmdPipelineBarrier(commandBuffers[i], VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &PresentToClearBarrier);
-		vkCmdClearColorImage(commandBuffers[i], vulkanCore.GetSwapChainImage(i), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &imageRange);
-		vkCmdPipelineBarrier(commandBuffers[i], VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &ClearToPresentBarrier);
-		VkResult result = vkEndCommandBuffer(commandBuffers[i]);
-		CHECK_VK_RESULT(result,"vkEndCommandBuffer");
-	}
 
+	VkImageMemoryBarrier swapchainToTransferBarrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = vulkanCore.GetSwapChainImage(imageIndex),
+		.subresourceRange = imageRange,
+	};
+
+
+	BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
+
+	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, nullptr, 0, nullptr, 1, &swapchainToTransferBarrier);
+
+	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], 1, 1, 1);
+
+	VkMemoryBarrier memoryBarrier{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+	};
+	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+
+	VkImageCopy region = {
+		.srcSubresource = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.mipLevel = 0,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+		.srcOffset = { 0, 0, 0 },
+		.dstSubresource = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.mipLevel = 0,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+		.dstOffset = { 0, 0, 0 },
+		.extent = { 16, 16, 1 },
+	};
+	vkCmdCopyImage(frameData.commandBuffers[frameIndex],
+		frameData.computeOutputImage[frameIndex], VK_IMAGE_LAYOUT_GENERAL,
+		vulkanCore.GetSwapChainImage(imageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &region);
+
+	VkImageMemoryBarrier swapchainToPresentBarrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = vulkanCore.GetSwapChainImage(imageIndex),
+		.subresourceRange = imageRange,
+	};
+
+	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+		0, 0, nullptr, 0, nullptr, 1, &swapchainToPresentBarrier);
+
+	VkResult result = vkEndCommandBuffer(frameData.commandBuffers[frameIndex]);
+	CHECK_VK_RESULT(result, "vkEndCommandBuffer");
 }
 void VulkanApp::Render() {
 	queue->WaitIdle();
-	uint32_t imageIndex = queue->AcquireNextImageKHR();
-	queue->SubmitAsync(commandBuffers[imageIndex]);
-	queue->Present(imageIndex);
+	int frameIndex = frameData.AdvanceFrame();
+	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
+	vkWaitForFences(logicalDevice, 1, &frameData.inFlight[frameIndex], VK_TRUE, UINT64_MAX);
+	vkResetFences(logicalDevice, 1, &frameData.inFlight[frameIndex]);
+	uint32_t imageIndex = queue->AcquireNextImageKHR(frameData.imageAvailable[frameIndex]);
+	RecordCommandBuffer(frameIndex, imageIndex);
+	queue->SubmitAsync(frameData.commandBuffers[frameIndex], frameData.imageAvailable[frameIndex], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frameData.renderFinished[frameIndex], frameData.inFlight[frameIndex]);
+	queue->Present(imageIndex, frameData.renderFinished[frameIndex]);
 }
-//void VulkanApp::RecordComputeCommandBuffer() {
-//	for (int i = 0;i < numImages;i++) {
-//		BeginCommandBuffer(commandBuffers[i], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
-//		computePipeline.RecordCommandBuffer(commandBuffers[i], computePipeline.GetDescriptorSet(i), 16, 16, 1);
-//		VkResult result = vkEndCommandBuffer(commandBuffers[i]);
-//		CHECK_VK_RESULT(result,"vkEndCommandBuffer");
-//	}
-//}
+void VulkanApp::Cleanup() {
+	queue->WaitIdle();
+	rtPipeline.Cleanup();
+	if (descriptorPool != VK_NULL_HANDLE) {
+		vkDestroyDescriptorPool(vulkanCore.GetLogicalDevice(), descriptorPool, nullptr);
+		descriptorPool = VK_NULL_HANDLE;
+		cout << "Descriptor pool destroyed successfully!" << std::endl;
+	}
+	frameData.Cleanup(vulkanCore.GetCommandPool());
+	vulkanCore.Cleanup();
+}

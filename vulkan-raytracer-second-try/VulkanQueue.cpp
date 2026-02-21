@@ -7,58 +7,39 @@ namespace my_vulkan
 	VulkanQueue::~VulkanQueue() {
 
 	}
-	void VulkanQueue::Cleanup() {
-		if (renderCompleteSemaphore != VK_NULL_HANDLE) {
-			vkDestroySemaphore(m_logicalDevice, renderCompleteSemaphore, nullptr);
-			renderCompleteSemaphore = VK_NULL_HANDLE;
-		}
-		if (presentCompleteSemaphore != VK_NULL_HANDLE){
-			vkDestroySemaphore(m_logicalDevice, presentCompleteSemaphore, nullptr);
-			presentCompleteSemaphore = VK_NULL_HANDLE;
-		}
-	}
 	void VulkanQueue::Init(VkDevice logicalDevice, VkSwapchainKHR swapChain, uint32_t QueueFamily, uint32_t queueFamilyIndex) {
 		m_logicalDevice = logicalDevice;
 		m_swapChain = swapChain;
 		vkGetDeviceQueue(logicalDevice, queueFamilyIndex, 0, &m_queue);
-		CreateSemaphores();
 	}
-	void VulkanQueue::CreateSemaphores() {
-		VkSemaphoreCreateInfo semaphoreCreateInfo{
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0,
-		};
-		VkResult result = vkCreateSemaphore(m_logicalDevice, &semaphoreCreateInfo, nullptr, &renderCompleteSemaphore);
-		CHECK_VK_RESULT(result,"vkCreateSemaphore");
-		result = vkCreateSemaphore(m_logicalDevice, &semaphoreCreateInfo, nullptr, &presentCompleteSemaphore);
-		CHECK_VK_RESULT(result,"vkCreateSemaphore");
-
-	}
-	uint32_t VulkanQueue::AcquireNextImageKHR() {
+	uint32_t VulkanQueue::AcquireNextImageKHR(VkSemaphore presentCompleteSemaphore) {
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(m_logicalDevice, m_swapChain, UINT64_MAX, presentCompleteSemaphore, VK_NULL_HANDLE, &imageIndex);
 		CHECK_VK_RESULT(result,"vkAcquireNextImageKHR");
 		return imageIndex;
 	}
-	void VulkanQueue::SubmitAsync(VkCommandBuffer commandBuffer) {
+	void VulkanQueue::SubmitAsync(VkCommandBuffer cmd,
+		VkSemaphore waitSemaphore,
+		VkPipelineStageFlags waitStage,
+		VkSemaphore signalSemaphore,
+		VkFence fence) {
 		VkPipelineStageFlags waitFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	VkSubmitInfo submitInfo{
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &presentCompleteSemaphore,
+		.pWaitSemaphores = &waitSemaphore,
 		.pWaitDstStageMask = &waitFlags,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &commandBuffer,
+		.pCommandBuffers = &cmd,
 		.signalSemaphoreCount = 1,
-		.pSignalSemaphores = &renderCompleteSemaphore,
+		.pSignalSemaphores = &signalSemaphore,
 	};
-	VkResult result = vkQueueSubmit(m_queue, 1, &submitInfo, VK_NULL_HANDLE);
+	VkResult result = vkQueueSubmit(m_queue, 1, &submitInfo, fence);
 	CHECK_VK_RESULT(result,"vkQueueSubmit");
 
 	}
-	void VulkanQueue::SubmitSync(VkCommandBuffer commandBuffer) {
+	void VulkanQueue::SubmitSync(VkCommandBuffer cmd) {
 		VkSubmitInfo submitInfo{
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,
@@ -66,7 +47,7 @@ namespace my_vulkan
 		.pWaitSemaphores = nullptr,
 		.pWaitDstStageMask = nullptr,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &commandBuffer,
+		.pCommandBuffers = &cmd,
 		.signalSemaphoreCount = 0,
 		.pSignalSemaphores = nullptr,
 		};
@@ -75,12 +56,12 @@ namespace my_vulkan
 
 		
 	}
-	void VulkanQueue::Present(uint32_t imageIndex) {
+	void VulkanQueue::Present(uint32_t imageIndex, VkSemaphore waitSemaphore) {
 		VkPresentInfoKHR presentInfo{
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.pNext = nullptr,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &renderCompleteSemaphore,
+		.pWaitSemaphores = &waitSemaphore,
 		.swapchainCount = 1,
 		.pSwapchains = &m_swapChain,
 		.pImageIndices = &imageIndex,

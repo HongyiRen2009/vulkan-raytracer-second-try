@@ -5,7 +5,6 @@ namespace my_vulkan
 	VulkanCore::VulkanCore() {
 	}
 	VulkanCore::~VulkanCore() {
-		Cleanup();
 	}
 
 	static string GetMessageSeverityString(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity) {
@@ -64,7 +63,7 @@ namespace my_vulkan
 	}
 	static VkSurfaceFormatKHR ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
 		for (const auto& availableFormat : availableFormats) {
-			if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			if (availableFormat.format == VK_FORMAT_R16G16B16_SFLOAT && availableFormat.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) {
 				return availableFormat;
 			}
 		}
@@ -86,7 +85,6 @@ namespace my_vulkan
 		CreateDebugCallback();
 		CreateSurface(window);
 		CreatePhysicalDevices();
-		queueFamilyIndex = physicalDevices.SelectPhysicalDevice(VK_QUEUE_GRAPHICS_BIT|VK_QUEUE_COMPUTE_BIT, true);
 		CreateLogicalDevice();
 		CreateSwapChain();
 		CreateCommandBufferPool();
@@ -143,8 +141,9 @@ namespace my_vulkan
 		std::cout << "Window surface created successfully!" << std::endl;
 	}
 	void VulkanCore::CreatePhysicalDevices() {
-		physicalDevices =  VulkanPhysicalDevices();
 		physicalDevices.init(instance, surface);
+		queueFamilyIndex = physicalDevices.SelectPhysicalDevice(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, true);
+		surfaceExtent = physicalDevices.GetSelectedPhysicalDevice().surfaceCapabilities.currentExtent;
 	}
 
 	void VulkanCore::CreateLogicalDevice() {
@@ -201,7 +200,7 @@ namespace my_vulkan
 			.imageColorSpace = surfaceFormat.colorSpace,
 			.imageExtent = surfaceCaps.currentExtent,
 			.imageArrayLayers = 1,
-			.imageUsage = (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT ),
+			.imageUsage = (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT),
 			.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
 			.queueFamilyIndexCount = 1,
 			.pQueueFamilyIndices = (uint32_t*)&queueFamilyIndex,
@@ -261,18 +260,7 @@ namespace my_vulkan
 		CHECK_VK_RESULT(result,"vkCreateCommandPool");
 		cout << "Command buffer pool created successfully!" << std::endl;
 	}
-	void VulkanCore::CreateCommandBuffers(uint32_t numImages, VkCommandBuffer* commandBuffer) {
-		VkCommandBufferAllocateInfo allocInfo{
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.commandPool = commandPool,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = numImages,
-		};
-		VkResult result = vkAllocateCommandBuffers(logicalDevice, &allocInfo, commandBuffer);
-		CHECK_VK_RESULT(result,"vkAllocateCommandBuffers");
-		cout << "Command buffers allocated successfully!" << std::endl;
-	}
+
 	void VulkanCore::Cleanup() {
 		queue.WaitIdle();
 		if (commandPool != VK_NULL_HANDLE) {
@@ -311,8 +299,6 @@ namespace my_vulkan
 				std::cerr << "Failed to load vkDestroySurfaceKHR" << std::endl;
 			}
 		}
-		queue.Cleanup();
-		cout << "Queue cleaned up successfully!" << std::endl;
 		vkDestroyDevice(logicalDevice, nullptr);
 		cout << "Logical device destroyed successfully!" << std::endl;
 		if (instance != VK_NULL_HANDLE) {
@@ -321,5 +307,23 @@ namespace my_vulkan
 		}
 
 		cout << "Vulkan cleanup successful!" << std::endl;
+	}
+	void BufferAndMemory::AddData(VkDevice device, const void* data, size_t size) {
+		void* mappedData;
+		VkResult result = vkMapMemory(device, memory, 0, size, 0, &mappedData);
+		CHECK_VK_RESULT(result,"vkMapMemory");
+		memcpy(mappedData, data, size);
+		vkUnmapMemory(device,memory);
+	}
+	void BufferAndMemory::Cleanup(VkDevice logicalDevice) {
+		if (buffer != VK_NULL_HANDLE) {
+			vkDestroyBuffer(logicalDevice, buffer, nullptr);
+			buffer = VK_NULL_HANDLE;
+		}
+		if (memory != VK_NULL_HANDLE) {
+			vkFreeMemory(logicalDevice, memory, nullptr);
+			memory = VK_NULL_HANDLE;
+		}
+		size = 0;
 	}
 }

@@ -128,6 +128,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ComputePipeline.cpp" />
+    <ClCompile Include="Framedata.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="RaytracingComputePipeline.cpp" />
     <ClCompile Include="VulkanApp.cpp" />
@@ -138,12 +139,20 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ComputePipeline.h" />
+    <ClInclude Include="FrameData.h" />
     <ClInclude Include="RaytracingComputePipeline.h" />
     <ClInclude Include="VulkanApp.h" />
     <ClInclude Include="VulkanCore.h" />
     <ClInclude Include="VulkanPhysicalDevices.h" />
     <ClInclude Include="VulkanQueue.h" />
     <ClInclude Include="VulkanUtils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="Raytrace.comp">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslc.exe "%(FullPath)" -o "%(FullPath).spv"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FullPath)%(Extension).spv</Outputs>
+    </CustomBuild>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
