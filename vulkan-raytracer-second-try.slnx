@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="vulkan-raytracer-second-try/vulkan-raytracer-second-try.vcxproj" Id="8c79ba1c-f033-40ea-b1d0-feb361892694" />
+</Solution>
