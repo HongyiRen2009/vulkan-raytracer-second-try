@@ -24,12 +24,23 @@ void processInput(GLFWwindow* window) {
 void render() {
 	
 }
+static void OnWindowResized(GLFWwindow* window, int width, int height) {
+	int _width = 0, _height = 0;
+	glfwGetFramebufferSize(window, &_width, &_height);
+	while (_width == 0 || _height == 0) {
+		glfwGetFramebufferSize(window, &_width, &_height);
+		glfwWaitEvents();
+	}
+
+	vulkanApp.OnWindowResized(_width, _height);
+}
 int main() {
 	initWindow();
 	vulkanApp.Init("Vulkan App", window);
 	if (!glfwVulkanSupported()) {
 		return -1;
 	}
+	glfwSetFramebufferSizeCallback(window, OnWindowResized);
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 		vulkanApp.Render();

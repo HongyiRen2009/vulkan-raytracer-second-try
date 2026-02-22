@@ -12,9 +12,15 @@ namespace my_vulkan
 		m_swapChain = swapChain;
 		vkGetDeviceQueue(logicalDevice, queueFamilyIndex, 0, &m_queue);
 	}
+	void VulkanQueue::UpdateSwapChain(VkSwapchainKHR swapChain) {
+		m_swapChain = swapChain;
+	}
 	uint32_t VulkanQueue::AcquireNextImageKHR(VkSemaphore presentCompleteSemaphore) {
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(m_logicalDevice, m_swapChain, UINT64_MAX, presentCompleteSemaphore, VK_NULL_HANDLE, &imageIndex);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+			return 6969;
+		}
 		CHECK_VK_RESULT(result,"vkAcquireNextImageKHR");
 		return imageIndex;
 	}
@@ -67,6 +73,9 @@ namespace my_vulkan
 		.pImageIndices = &imageIndex,
 		};
 		VkResult result = vkQueuePresentKHR(m_queue, &presentInfo);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+			return;
+		}
 		CHECK_VK_RESULT(result, "vkQueuePresentKHR");
 	}
 	void VulkanQueue::WaitIdle() {

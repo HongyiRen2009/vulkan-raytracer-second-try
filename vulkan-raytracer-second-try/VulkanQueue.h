@@ -9,6 +9,7 @@ namespace my_vulkan
 			~VulkanQueue();
 			void Init(VkDevice logicalDevice, VkSwapchainKHR swapChain, uint32_t queueFamilyIndex, uint32_t queueIndex);
 			uint32_t AcquireNextImageKHR(VkSemaphore presentCompleteSemaphore);
+			void UpdateSwapChain(VkSwapchainKHR swapChain);
 			void SubmitSync(VkCommandBuffer cmd);
 			void SubmitAsync(VkCommandBuffer cmd,
 				VkSemaphore waitSemaphore,

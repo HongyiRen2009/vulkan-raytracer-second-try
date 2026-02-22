@@ -2,26 +2,19 @@
 #version 460
 #extension GL_KHR_vulkan_glsl: enable
 //size of a workgroup for compute
-layout (local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 16, local_size_y = 16) in;
 
-//descriptor bindings for the pipeline
-layout(rgba8,set = 0, binding = 0) uniform image2D image;
+layout(binding = 0, rgba8) uniform writeonly image2D img;
 
-void main(){
-	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-	ivec2 size = imageSize(image);
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = imageSize(img);
 
-    if(texelCoord.x < size.x && texelCoord.y < size.y)
-    {
-        vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
+    if (pixel.x >= size.x || pixel.y >= size.y)
+        return;
 
-        if(gl_LocalInvocationID.x != 0 && gl_LocalInvocationID.y != 0)
-        {
-            color.x = float(texelCoord.x)/(size.x);
-            color.y = float(texelCoord.y)/(size.y);	
-        }
-    
-        imageStore(image, texelCoord, color);
-    }
+    vec2 uv = vec2(pixel) / vec2(size);
 
+    imageStore(img, pixel, vec4(uv, 0.0, 1.0));
 }

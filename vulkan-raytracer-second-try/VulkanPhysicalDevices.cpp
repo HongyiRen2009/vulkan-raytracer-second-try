@@ -127,6 +127,27 @@ uint32_t VulkanPhysicalDevices::SelectPhysicalDevice(VkQueueFlags RequiredQueueT
     throw std::runtime_error("No suitable physical device found");
 	return 0;
 }
+void VulkanPhysicalDevices::UpdateSurfaceFormats(VkSurfaceKHR surface) {
+    for (uint32_t i = 0; i < physicalDevices.size(); i++) {
+		auto& device = physicalDevices[i];
+        VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.device, surface, &device.surfaceCapabilities);
+        CHECK_VK_RESULT(result, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+
+        uint32_t numSurfaceFormats = 0;
+        result = vkGetPhysicalDeviceSurfaceFormatsKHR(device.device, surface, &numSurfaceFormats, nullptr);
+        CHECK_VK_RESULT(result, "vkGetPhysicalDeviceSurfaceFormatsKHR");
+        device.surfaceFormats.resize(numSurfaceFormats);
+        result = vkGetPhysicalDeviceSurfaceFormatsKHR(device.device, surface, &numSurfaceFormats, device.surfaceFormats.data());
+        CHECK_VK_RESULT(result, "vkGetPhysicalDeviceSurfaceFormatsKHR");
+
+        uint32_t numPresentingModes = 0;
+        result = vkGetPhysicalDeviceSurfacePresentModesKHR(device.device, surface, &numPresentingModes, nullptr);
+        CHECK_VK_RESULT(result, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+        device.presentingModes.resize(numPresentingModes);
+        result = vkGetPhysicalDeviceSurfacePresentModesKHR(device.device, surface, &numPresentingModes, device.presentingModes.data());
+        CHECK_VK_RESULT(result, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+    }
+}
 PhysicalDevice& VulkanPhysicalDevices::GetSelectedPhysicalDevice() {
     if (selectedPhysicalDeviceIndex < 0) {
         throw std::runtime_error("No physical device selected");

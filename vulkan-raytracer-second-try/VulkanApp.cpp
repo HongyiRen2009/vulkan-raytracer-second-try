@@ -11,7 +11,7 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window) {
 	numImages = vulkanCore.GetNumSwapChainImages();
 	CreateDescriptorPool();
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
-	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT);
+	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT,vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
@@ -66,8 +66,10 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		0, 0, nullptr, 0, nullptr, 1, &swapchainToTransferBarrier);
+	uint32_t groupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
+	uint32_t groupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
 
-	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], 1, 1, 1);
+	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], groupCountX, groupCountY, 1);
 
 	VkMemoryBarrier memoryBarrier{
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -79,7 +81,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
-
+	
 	VkImageCopy region = {
 		.srcSubresource = {
 			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -95,7 +97,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 			.layerCount = 1,
 		},
 		.dstOffset = { 0, 0, 0 },
-		.extent = { 16, 16, 1 },
+		.extent = { vulkanCore.surfaceExtent.width, vulkanCore.surfaceExtent.height, 1 },
 	};
 	vkCmdCopyImage(frameData.commandBuffers[frameIndex],
 		frameData.computeOutputImage[frameIndex], VK_IMAGE_LAYOUT_GENERAL,
@@ -128,11 +130,41 @@ void VulkanApp::Render() {
 	int frameIndex = frameData.AdvanceFrame();
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
 	vkWaitForFences(logicalDevice, 1, &frameData.inFlight[frameIndex], VK_TRUE, UINT64_MAX);
-	vkResetFences(logicalDevice, 1, &frameData.inFlight[frameIndex]);
 	uint32_t imageIndex = queue->AcquireNextImageKHR(frameData.imageAvailable[frameIndex]);
+	if (imageIndex == 6969) {
+		OnWindowResized();
+		return;
+	}
+	vkResetFences(logicalDevice, 1, &frameData.inFlight[frameIndex]);
+
 	RecordCommandBuffer(frameIndex, imageIndex);
 	queue->SubmitAsync(frameData.commandBuffers[frameIndex], frameData.imageAvailable[frameIndex], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frameData.renderFinished[frameIndex], frameData.inFlight[frameIndex]);
 	queue->Present(imageIndex, frameData.renderFinished[frameIndex]);
+}
+void VulkanApp::OnWindowResized(int width, int height) {
+	queue->WaitIdle();
+	
+	rtPipeline.Cleanup();
+	frameData.Cleanup(vulkanCore.GetCommandPool());
+
+	if (descriptorPool != VK_NULL_HANDLE) {
+		vkDestroyDescriptorPool(vulkanCore.GetLogicalDevice(), descriptorPool, nullptr);
+		descriptorPool = VK_NULL_HANDLE;
+	}
+
+	vulkanCore.RecreateSwapChain();
+	queue->UpdateSwapChain(vulkanCore.GetSwapChain());
+	CreateDescriptorPool();
+
+	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
+	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
+
+	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
+	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i]);
+	}
+	
 }
 void VulkanApp::Cleanup() {
 	queue->WaitIdle();

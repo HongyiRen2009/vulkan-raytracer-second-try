@@ -5,12 +5,13 @@ namespace my_vulkan
 	}
 	FrameData::~FrameData() {
 	}
-	void FrameData::init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames) {
+	void FrameData::init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent) {
+		frameIndex = -1;
 		this->numFrames = numFrames;
 		this->logicalDevice = logicalDevice;
 		CreateSemaphores();
 		CreateCommandBuffers(commandPool);
-		CreateComputeOutputImageViews(physicalDevice);
+		CreateComputeOutputImageViews(physicalDevice, extent);
 		CreateFences();
 	}
 	void FrameData::InitializeComputeOutputLayouts(VkCommandPool commandPool, VkQueue queue) {
@@ -114,7 +115,7 @@ namespace my_vulkan
 		}
 		throw std::runtime_error("failed to find suitable memory type!");
 	}
-	void FrameData::CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice) {
+	void FrameData::CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice, VkExtent2D extent) {
 		computeOutput.resize(numFrames);
 		computeOutputImage.resize(numFrames);
 		computeOutputImageMemory.resize(numFrames);
@@ -127,7 +128,7 @@ namespace my_vulkan
 				.flags = 0,
 				.imageType = VK_IMAGE_TYPE_2D,
 				.format = VK_FORMAT_R8G8B8A8_UNORM,
-				.extent = { 16, 16, 1 },
+				.extent = { extent.width, extent.height, 1 },
 				.mipLevels = 1,
 				.arrayLayers = 1,
 				.samples = VK_SAMPLE_COUNT_1_BIT,
@@ -199,6 +200,17 @@ namespace my_vulkan
 			vkDestroyImageView(logicalDevice, computeOutput[i], nullptr);
 			vkDestroyImage(logicalDevice, computeOutputImage[i], nullptr);
 			vkFreeMemory(logicalDevice, computeOutputImageMemory[i], nullptr);
+			vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffers[i]);
 		}
+
+		// Clear all vectors to prevent stale handles
+		imageAvailable.clear();
+		renderFinished.clear();
+		inFlight.clear();
+		commandBuffers.clear();
+		computeOutput.clear();
+		computeOutputImage.clear();
+		computeOutputImageMemory.clear();
+		descriptor.clear();
 	}
 }

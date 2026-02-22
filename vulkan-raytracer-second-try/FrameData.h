@@ -17,7 +17,7 @@ namespace my_vulkan
 		vector<VkDescriptorSet> descriptor;
 		FrameData();
 		~FrameData();
-		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames);
+		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent);
 		void InitializeComputeOutputLayouts(VkCommandPool commandPool, VkQueue queue);
 		int AdvanceFrame() {
 			frameIndex = (frameIndex + 1) % numFrames;
@@ -30,7 +30,7 @@ namespace my_vulkan
 		void CreateSemaphores();
 		void CreateFences();
 		void CreateCommandBuffers(VkCommandPool commandPool);
-		void CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice);
+		void CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice, VkExtent2D extent);
 		vector<VkDeviceMemory> computeOutputImageMemory;
 		int numFrames = 0;
 		int frameIndex = -1;

@@ -81,6 +81,7 @@ namespace my_vulkan
 
 	}
 	void VulkanCore::Init(const char* AppName,GLFWwindow* window) {
+
 		CreateInstance(AppName);
 		CreateDebugCallback();
 		CreateSurface(window);
@@ -260,7 +261,19 @@ namespace my_vulkan
 		CHECK_VK_RESULT(result,"vkCreateCommandPool");
 		cout << "Command buffer pool created successfully!" << std::endl;
 	}
+	void VulkanCore::RecreateSwapChain() {
+		vkDeviceWaitIdle(logicalDevice);
+		for (uint32_t i = 0;i < swapChainImageViews.size();i++) {
+			vkDestroyImageView(logicalDevice, swapChainImageViews[i], nullptr);
+		}
+		swapChainImageViews.clear();
+		physicalDevices.UpdateSurfaceFormats(surface);
+		surfaceExtent = physicalDevices.GetSelectedPhysicalDevice().surfaceCapabilities.currentExtent;
+		vkDestroySwapchainKHR(logicalDevice, swapChain, nullptr);
+		swapChain = VK_NULL_HANDLE;
 
+		CreateSwapChain();
+	}
 	void VulkanCore::Cleanup() {
 		queue.WaitIdle();
 		if (commandPool != VK_NULL_HANDLE) {

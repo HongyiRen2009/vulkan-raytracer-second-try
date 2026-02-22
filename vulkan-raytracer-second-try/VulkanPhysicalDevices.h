@@ -21,6 +21,7 @@ namespace my_vulkan
 			VulkanPhysicalDevices();
 			~VulkanPhysicalDevices();
 			void init(VkInstance instance, VkSurfaceKHR surface);
+			void UpdateSurfaceFormats(VkSurfaceKHR surface);
 			/*
 			Gets the currently selected physical device. Must be called after SelectPhysicalDevice() has been called successfully and throws an error otherwise.
 			*/

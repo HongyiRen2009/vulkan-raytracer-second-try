@@ -32,6 +32,7 @@ namespace my_vulkan
 			~VulkanCore();
 			void Init(const char* AppName,GLFWwindow* window);
 			void Cleanup();
+			VkSwapchainKHR GetSwapChain() const { return swapChain; }
 			int GetNumSwapChainImages() const { return (int)swapChainImages.size(); }
 			VkImage GetSwapChainImage(uint32_t index) const { return swapChainImages[index]; }
 			VkImageView GetSwapChainImageView(uint32_t index) const { return swapChainImageViews[index]; }
@@ -41,6 +42,7 @@ namespace my_vulkan
 			VkCommandPool GetCommandPool() const { return commandPool; }
 			VkPhysicalDevice GetPhysicalDevice() { return physicalDevices.GetSelectedPhysicalDevice().device; }
 			VkExtent2D surfaceExtent;
+			void RecreateSwapChain();
 		private:
 			VkInstance instance = VK_NULL_HANDLE;
 			VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;

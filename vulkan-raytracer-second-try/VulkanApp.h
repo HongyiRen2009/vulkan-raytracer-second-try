@@ -18,6 +18,8 @@ namespace my_vulkan
 			void Init(const char* AppName, GLFWwindow* window);
 			void Render();
 			void Cleanup();
+			void OnWindowResized(int width=-1, int height=-1);
+
 	private:
 		VulkanCore vulkanCore;
 		int numImages = 0;
@@ -28,7 +30,6 @@ namespace my_vulkan
 		void CreateDescriptorPool();
 		void RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 		void RecordComputeCommandBuffer();
-
 		
 		
 	};
