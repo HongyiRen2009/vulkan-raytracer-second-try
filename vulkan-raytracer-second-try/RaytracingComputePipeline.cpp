@@ -1,6 +1,8 @@
 #include "RaytracingComputePipeline.h"
+
 namespace my_vulkan
 {
+
 	RaytracingComputePipeline::RaytracingComputePipeline() {
 	}
 	RaytracingComputePipeline::~RaytracingComputePipeline() {
@@ -13,23 +15,36 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
+	VkDescriptorSetLayoutBinding uniformBufferBinding{
+		.binding = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr,
+	};
+	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding, uniformBufferBinding };
 	VkDescriptorSetLayoutCreateInfo layoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.bindingCount = 1,
-		.pBindings = &outputImageBinding,
+		.bindingCount = (uint32_t)bindings.size(),
+		.pBindings =	bindings.data(),
 	};
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkResult result = vkCreateDescriptorSetLayout(core.GetLogicalDevice(), &layoutCreateInfo, nullptr, &descriptorSetLayout);
 	CHECK_VK_RESULT(result,"vkCreateDescriptorSetLayout");
 	return descriptorSetLayout;
 }
-void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView) {
+void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkBuffer uniformBuffer ) {
 	VkDescriptorImageInfo outputImageInfo{
 		.sampler = VK_NULL_HANDLE,
 		.imageView = outputImageView,
 		.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+	};
+	VkDescriptorBufferInfo uniformBufferInfo{
+		.buffer = uniformBuffer,
+		.offset = 0,
+		.range = VK_WHOLE_SIZE,
 	};
 	VkWriteDescriptorSet writeDescriptorSet{
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -43,6 +58,20 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.pBufferInfo = nullptr,
 		.pTexelBufferView = nullptr,
 	};
-	vkUpdateDescriptorSets(logicalDevice, 1, &writeDescriptorSet, 0, nullptr);
+	VkWriteDescriptorSet uniformBufferWrite{
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.pNext = nullptr,
+		.dstSet = descriptorSet,
+		.dstBinding = 1,
+		.dstArrayElement = 0,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.pImageInfo = nullptr,
+		.pBufferInfo = &uniformBufferInfo,
+		.pTexelBufferView = nullptr,
+	};
+	std::vector<VkWriteDescriptorSet> descriptorWrites = { writeDescriptorSet, uniformBufferWrite };
+	vkUpdateDescriptorSets(logicalDevice, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+
 }
 }

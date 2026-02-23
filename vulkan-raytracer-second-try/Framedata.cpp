@@ -13,6 +13,7 @@ namespace my_vulkan
 		CreateCommandBuffers(commandPool);
 		CreateComputeOutputImageViews(physicalDevice, extent);
 		CreateFences();
+		CreateUniformBuffers(physicalDevice, logicalDevice, extent);
 	}
 	void FrameData::InitializeComputeOutputLayouts(VkCommandPool commandPool, VkQueue queue) {
 		VkCommandBuffer commandBuffer;
@@ -192,6 +193,12 @@ namespace my_vulkan
 			CHECK_VK_RESULT(result, "vkCreateFence");
 		}
 	}
+	void FrameData::CreateUniformBuffers(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkExtent2D extent) {
+		uniformBuffers.resize(numFrames);
+		for (int i = 0;i < numFrames;i++) {
+			uniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ComputeUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		}
+	}
 	void FrameData::Cleanup(VkCommandPool commandPool) {
 		for (int i = 0;i < numFrames;i++) {
 			vkDestroySemaphore(logicalDevice, imageAvailable[i], nullptr);
@@ -201,6 +208,7 @@ namespace my_vulkan
 			vkDestroyImage(logicalDevice, computeOutputImage[i], nullptr);
 			vkFreeMemory(logicalDevice, computeOutputImageMemory[i], nullptr);
 			vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffers[i]);
+			uniformBuffers[i].Cleanup(logicalDevice);
 		}
 
 		// Clear all vectors to prevent stale handles

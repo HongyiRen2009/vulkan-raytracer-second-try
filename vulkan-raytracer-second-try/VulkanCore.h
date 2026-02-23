@@ -14,17 +14,7 @@ namespace my_vulkan
 {
 
 	void BeginCommandBuffer(VkCommandBuffer commandBuffer, VkCommandBufferUsageFlags usageFlags);
-	class BufferAndMemory {
-		public:
-		VkBuffer buffer = VK_NULL_HANDLE;
-		VkDeviceMemory memory = VK_NULL_HANDLE;
-		VkDeviceSize size = 0;
-		void AddData(VkDevice device, const void* data, size_t size);
-		
-		void Cleanup(VkDevice logicalDevice);
 
-		
-	};
 	class VulkanCore
 	{
 		public:

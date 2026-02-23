@@ -3,6 +3,8 @@
 #include <vector>
 #include "VulkanUtils.h"
 #include <iostream>
+#include "BufferAndMemory.h"
+#include "RaytracingComputePipeline.h"
 using namespace std;
 namespace my_vulkan
 {
@@ -15,6 +17,7 @@ namespace my_vulkan
 		vector<VkImageView> computeOutput;       
 		vector <VkImage> computeOutputImage;
 		vector<VkDescriptorSet> descriptor;
+		vector<BufferAndMemory> uniformBuffers;
 		FrameData();
 		~FrameData();
 		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent);
@@ -31,6 +34,7 @@ namespace my_vulkan
 		void CreateFences();
 		void CreateCommandBuffers(VkCommandPool commandPool);
 		void CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice, VkExtent2D extent);
+		void CreateUniformBuffers(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkExtent2D extent);
 		vector<VkDeviceMemory> computeOutputImageMemory;
 		int numFrames = 0;
 		int frameIndex = -1;

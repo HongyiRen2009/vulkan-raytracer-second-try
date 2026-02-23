@@ -7,15 +7,17 @@
 #include "VulkanQueue.h"
 #include "RaytracingComputePipeline.h"
 #include "FrameData.h"
+#include "Camera.h"
 namespace my_vulkan
 {
+
 	const int MAX_FRAMES_IN_FLIGHT = 2;
 
 	class VulkanApp {
 		public:
 			VulkanApp();
 			~VulkanApp();
-			void Init(const char* AppName, GLFWwindow* window);
+			void Init(const char* AppName, GLFWwindow* window, Camera* camera);
 			void Render();
 			void Cleanup();
 			void OnWindowResized(int width=-1, int height=-1);
@@ -27,6 +29,7 @@ namespace my_vulkan
 		RaytracingComputePipeline rtPipeline;
 		FrameData frameData;
 		VulkanQueue* queue = nullptr;
+		Camera* camera;
 		void CreateDescriptorPool();
 		void RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 		void RecordComputeCommandBuffer();

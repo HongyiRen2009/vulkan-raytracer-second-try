@@ -5,7 +5,8 @@ VulkanApp::VulkanApp() {
 VulkanApp::~VulkanApp() {
 
 }
-void VulkanApp::Init(const char* AppName, GLFWwindow* window) {
+void VulkanApp::Init(const char* AppName, GLFWwindow* window,Camera* camera) {
+	this->camera = camera;
 	vulkanCore.Init(AppName, window);
 	queue = vulkanCore.GetQueue();
 	numImages = vulkanCore.GetNumSwapChainImages();
@@ -16,22 +17,27 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window) {
 
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i]);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i],frameData.uniformBuffers[i].buffer);
 	}
 }
 
 void VulkanApp::CreateDescriptorPool() {
-	VkDescriptorPoolSize poolSizes[]{ {
+	vector<VkDescriptorPoolSize> poolSizes = { {
 			.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 			.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
-	} };
+	},
+	{
+		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+}
+	};
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
 		.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT,
-		.poolSizeCount = 1,
-		.pPoolSizes = poolSizes,
+		.poolSizeCount = (uint32_t)poolSizes.size(),
+		.pPoolSizes = poolSizes.data(),
 	};
 	VkResult result = vkCreateDescriptorPool(vulkanCore.GetLogicalDevice(), &descriptorPoolCreateInfo, nullptr, &descriptorPool);
 	CHECK_VK_RESULT(result, "vkCreateDescriptorPool");
@@ -58,7 +64,12 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.image = vulkanCore.GetSwapChainImage(imageIndex),
 		.subresourceRange = imageRange,
 	};
-
+	ComputeUniformData uniformData{
+		.view = camera->getViewMatrix(),
+		.proj = camera->getProjectionMatrix(),
+		.cameraPos = camera->position,
+	};
+	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
 
 	BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
 
@@ -162,7 +173,7 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i]);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i],frameData.uniformBuffers[i].buffer);
 	}
 	
 }

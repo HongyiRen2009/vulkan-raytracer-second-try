@@ -7,6 +7,17 @@ int windowWidth = 800;
 int windowHeight = 600;
 GLFWwindow* window;
 VulkanApp vulkanApp;
+Camera* camera;
+static void OnWindowResized(GLFWwindow* window, int width, int height) {
+	int _width = 0, _height = 0;
+	glfwGetFramebufferSize(window, &_width, &_height);
+	while (_width == 0 || _height == 0) {
+		glfwGetFramebufferSize(window, &_width, &_height);
+		glfwWaitEvents();
+	}
+	camera->updateAspectRatio(static_cast<float>(_width) / static_cast<float>(_height));
+	vulkanApp.OnWindowResized(_width, _height);
+}
 void initWindow() {
 	glfwInit();
 	GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
@@ -15,32 +26,24 @@ void initWindow() {
 	windowHeight = videoMode->height;
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	window = glfwCreateWindow(windowWidth, windowHeight, "Vulkan", nullptr, nullptr);
+	glfwSetFramebufferSizeCallback(window, OnWindowResized);
+	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 }
 void processInput(GLFWwindow* window) {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, true);
 	}
+	camera->update();
 }
-void render() {
-	
-}
-static void OnWindowResized(GLFWwindow* window, int width, int height) {
-	int _width = 0, _height = 0;
-	glfwGetFramebufferSize(window, &_width, &_height);
-	while (_width == 0 || _height == 0) {
-		glfwGetFramebufferSize(window, &_width, &_height);
-		glfwWaitEvents();
-	}
 
-	vulkanApp.OnWindowResized(_width, _height);
-}
 int main() {
 	initWindow();
-	vulkanApp.Init("Vulkan App", window);
+	camera = new Camera(window);
+	camera->updateAspectRatio(static_cast<float>(windowWidth) / static_cast<float>(windowHeight));
+	vulkanApp.Init("Vulkan App", window,camera);
 	if (!glfwVulkanSupported()) {
 		return -1;
 	}
-	glfwSetFramebufferSizeCallback(window, OnWindowResized);
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 		vulkanApp.Render();

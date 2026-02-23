@@ -321,22 +321,5 @@ namespace my_vulkan
 
 		cout << "Vulkan cleanup successful!" << std::endl;
 	}
-	void BufferAndMemory::AddData(VkDevice device, const void* data, size_t size) {
-		void* mappedData;
-		VkResult result = vkMapMemory(device, memory, 0, size, 0, &mappedData);
-		CHECK_VK_RESULT(result,"vkMapMemory");
-		memcpy(mappedData, data, size);
-		vkUnmapMemory(device,memory);
-	}
-	void BufferAndMemory::Cleanup(VkDevice logicalDevice) {
-		if (buffer != VK_NULL_HANDLE) {
-			vkDestroyBuffer(logicalDevice, buffer, nullptr);
-			buffer = VK_NULL_HANDLE;
-		}
-		if (memory != VK_NULL_HANDLE) {
-			vkFreeMemory(logicalDevice, memory, nullptr);
-			memory = VK_NULL_HANDLE;
-		}
-		size = 0;
-	}
+
 }
