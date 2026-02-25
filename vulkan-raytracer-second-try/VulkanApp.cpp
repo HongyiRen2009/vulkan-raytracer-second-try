@@ -5,19 +5,19 @@ VulkanApp::VulkanApp() {
 VulkanApp::~VulkanApp() {
 
 }
-void VulkanApp::Init(const char* AppName, GLFWwindow* window,Camera* camera) {
+void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 	this->camera = camera;
 	vulkanCore.Init(AppName, window);
 	queue = vulkanCore.GetQueue();
 	numImages = vulkanCore.GetNumSwapChainImages();
 	CreateDescriptorPool();
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
-	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT,vulkanCore.surfaceExtent);
+	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i],frameData.uniformBuffers[i].buffer);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer);
 	}
 }
 
@@ -29,7 +29,16 @@ void VulkanApp::CreateDescriptorPool() {
 	{
 		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
-}
+},
+{
+	.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+	.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+
+},
+{
+	.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+	.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+	}
 	};
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -68,6 +77,9 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.view = camera->getViewMatrix(),
 		.proj = camera->getProjectionMatrix(),
 		.cameraPos = camera->position,
+		.CHUNK_SIZE = Chunk::CHUNK_SIZE,
+		.CHUNK_HEIGHT = Chunk::CHUNK_HEIGHT,
+		
 	};
 	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
 
@@ -92,7 +104,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
-	
+
 	VkImageCopy region = {
 		.srcSubresource = {
 			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -136,6 +148,30 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	VkResult result = vkEndCommandBuffer(frameData.commandBuffers[frameIndex]);
 	CHECK_VK_RESULT(result, "vkEndCommandBuffer");
 }
+uint32_t hashChunkPos(ivec2 pos) {
+	uint32_t hash = uint32_t(pos.x * 73856093) ^ uint32_t(pos.y * 19349663);
+	return hash % 1000u;
+}
+
+void VulkanApp::UpdateChunkSSBO(vector<Chunk>& chunks) {
+	unsigned int CHUNK_SSBO_DATA_SIZE = Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE * Chunk::CHUNK_HEIGHT;
+	unsigned int CHUNK_SSBO_DATA_SIZE_BYTES = CHUNK_SSBO_DATA_SIZE * sizeof(unsigned int);
+	for (auto& chunk : chunks) {
+
+		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			if (!chunk.isDirty) continue;
+			ChunkData data = {
+				.chunkPos = chunk.chunkPosition,
+				.gpuSlot = chunk.gpuSlot,
+			};
+			frameData.chunkSSBO[i].AddData(vulkanCore.GetLogicalDevice(), &data, sizeof(ChunkData), hashChunkPos(data.chunkPos) * sizeof(ChunkData));
+			frameData.voxelSSBO[i].AddData(vulkanCore.GetLogicalDevice(), chunk.blocks, CHUNK_SSBO_DATA_SIZE_BYTES, data.gpuSlot * CHUNK_SSBO_DATA_SIZE_BYTES);
+
+		}
+		chunk.isDirty = false;
+	}
+
+}
 void VulkanApp::Render() {
 	queue->WaitIdle();
 	int frameIndex = frameData.AdvanceFrame();
@@ -154,7 +190,7 @@ void VulkanApp::Render() {
 }
 void VulkanApp::OnWindowResized(int width, int height) {
 	queue->WaitIdle();
-	
+
 	rtPipeline.Cleanup();
 	frameData.Cleanup(vulkanCore.GetCommandPool());
 
@@ -173,9 +209,9 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i],frameData.uniformBuffers[i].buffer);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer);
 	}
-	
+
 }
 void VulkanApp::Cleanup() {
 	queue->WaitIdle();

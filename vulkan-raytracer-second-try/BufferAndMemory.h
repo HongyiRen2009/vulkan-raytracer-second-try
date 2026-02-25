@@ -8,7 +8,7 @@ public:
 	VkDeviceMemory memory = VK_NULL_HANDLE;
 	VkDeviceSize size = 0;
 	void CreateBuffer(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryProperties);
-	void AddData(VkDevice device, const void* data, size_t size);
+	void AddData(VkDevice device, const void* data, size_t size, VkDeviceSize offset=0);
 	void Cleanup(VkDevice logicalDevice);
 
 

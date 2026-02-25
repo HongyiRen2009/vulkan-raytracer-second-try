@@ -129,6 +129,8 @@
   <ItemGroup>
     <ClCompile Include="BufferAndMemory.cpp" />
     <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="Chunk.cpp" />
+    <ClCompile Include="ChunkManager.cpp" />
     <ClCompile Include="ComputePipeline.cpp" />
     <ClCompile Include="Framedata.cpp" />
     <ClCompile Include="main.cpp" />
@@ -142,6 +144,8 @@
   <ItemGroup>
     <ClInclude Include="BufferAndMemory.h" />
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="Chunk.h" />
+    <ClInclude Include="ChunkManager.h" />
     <ClInclude Include="ComputePipeline.h" />
     <ClInclude Include="FrameData.h" />
     <ClInclude Include="RaytracingComputePipeline.h" />

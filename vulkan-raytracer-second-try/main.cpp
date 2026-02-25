@@ -2,12 +2,15 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 #include "VulkanApp.h"
+#include "ChunkManager.h"
 using namespace my_vulkan;
 int windowWidth = 800;
 int windowHeight = 600;
 GLFWwindow* window;
 VulkanApp vulkanApp;
 Camera* camera;
+ChunkManager chunkManager;
+unsigned int seed = 42;
 static void OnWindowResized(GLFWwindow* window, int width, int height) {
 	int _width = 0, _height = 0;
 	glfwGetFramebufferSize(window, &_width, &_height);
@@ -41,6 +44,8 @@ int main() {
 	camera = new Camera(window);
 	camera->updateAspectRatio(static_cast<float>(windowWidth) / static_cast<float>(windowHeight));
 	vulkanApp.Init("Vulkan App", window,camera);
+	chunkManager.loadChunk(seed,ivec2(0,0));
+	vulkanApp.UpdateChunkSSBO(chunkManager.chunks);
 	if (!glfwVulkanSupported()) {
 		return -1;
 	}

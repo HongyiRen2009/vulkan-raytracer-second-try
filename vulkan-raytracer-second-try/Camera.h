@@ -34,7 +34,7 @@ private:
     float deltaTime = 0.0f;
     float lastFrame = 0.0f;
     float lastX = 400.0f, lastY = 300.0f;
-    float yaw = 0.0f;
+    float yaw = 90.0f;
     float pitch = 0.0f;
     bool firstMouse = true;
 	float aspectRatio = 1;

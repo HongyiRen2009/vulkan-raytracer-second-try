@@ -14,9 +14,9 @@ uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, Vk
 	}
 	throw std::runtime_error("Failed to find suitable memory type!");
 }
-void BufferAndMemory::AddData(VkDevice device, const void* data, size_t size) {
+void BufferAndMemory::AddData(VkDevice device, const void* data, size_t size,VkDeviceSize offset) {
 	void* mappedData;
-	VkResult result = vkMapMemory(device, memory, 0, size, 0, &mappedData);
+	VkResult result = vkMapMemory(device, memory, offset, size, 0, &mappedData);
 	CHECK_VK_RESULT(result, "vkMapMemory");
 	memcpy(mappedData, data, size);
 	vkUnmapMemory(device, memory);

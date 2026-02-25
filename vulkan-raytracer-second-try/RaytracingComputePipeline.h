@@ -9,6 +9,12 @@ namespace my_vulkan
 		glm::mat4 view;
 		glm::mat4 proj;
 		glm::vec3 cameraPos;
+		uint32_t CHUNK_SIZE;
+		uint32_t CHUNK_HEIGHT;
+	};
+	struct ChunkData {
+		glm::vec2 chunkPos;
+		uint32_t gpuSlot;
 	};
 	class RaytracingComputePipeline : public ComputePipeline
 	{
@@ -16,7 +22,7 @@ namespace my_vulkan
 	public:
 		RaytracingComputePipeline();
 		~RaytracingComputePipeline();
-		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkBuffer uniformBuffer);
+		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO);
 	protected:
 		virtual VkDescriptorSetLayout CreateDescriptorSetLayout(VulkanCore& core) override;
 	};
