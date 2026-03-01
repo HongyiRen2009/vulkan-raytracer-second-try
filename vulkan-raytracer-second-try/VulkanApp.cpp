@@ -8,19 +8,32 @@ VulkanApp::~VulkanApp() {
 void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 	this->camera = camera;
 	vulkanCore.Init(AppName, window);
+	CreateCopyCommandBuffer();
+	blockTextureArray.Init(vulkanCore.GetLogicalDevice(), copyCommandBuffer, vulkanCore.GetQueue(), vulkanCore.GetPhysicalDevices());
+	blockTextureArray.CreateTextureArray("atlas.png",25,25);
 	queue = vulkanCore.GetQueue();
 	numImages = vulkanCore.GetNumSwapChainImages();
 	CreateDescriptorPool();
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
-	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
+	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,&blockTextureArray);
 	}
 }
-
+void VulkanApp::CreateCopyCommandBuffer() {
+	VkCommandBufferAllocateInfo allocInfo{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.commandPool = vulkanCore.GetCommandPool(),
+		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.commandBufferCount = 1,
+	};
+	VkResult result = vkAllocateCommandBuffers(vulkanCore.GetLogicalDevice(), &allocInfo, &copyCommandBuffer);
+	CHECK_VK_RESULT(result, "vkAllocateCommandBuffers");
+}
 void VulkanApp::CreateDescriptorPool() {
 	vector<VkDescriptorPoolSize> poolSizes = { {
 			.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -38,7 +51,11 @@ void VulkanApp::CreateDescriptorPool() {
 {
 	.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 	.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
-	}
+	},
+	{
+		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+}
 	};
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -64,7 +81,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	VkImageMemoryBarrier swapchainToTransferBarrier = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 		.pNext = nullptr,
-		.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+		.srcAccessMask = 0,
 		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
 		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -73,14 +90,16 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.image = vulkanCore.GetSwapChainImage(imageIndex),
 		.subresourceRange = imageRange,
 	};
+
 	ComputeUniformData uniformData{
 		.view = camera->getViewMatrix(),
 		.proj = camera->getProjectionMatrix(),
 		.cameraPos = camera->position,
 		.CHUNK_SIZE = Chunk::CHUNK_SIZE,
 		.CHUNK_HEIGHT = Chunk::CHUNK_HEIGHT,
-		
+		.blockDataArray = {}
 	};
+	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
 	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
 
 	BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
@@ -89,9 +108,9 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		0, 0, nullptr, 0, nullptr, 1, &swapchainToTransferBarrier);
+
 	uint32_t groupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
 	uint32_t groupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
-
 	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], groupCountX, groupCountY, 1);
 
 	VkMemoryBarrier memoryBarrier{
@@ -122,6 +141,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.dstOffset = { 0, 0, 0 },
 		.extent = { vulkanCore.surfaceExtent.width, vulkanCore.surfaceExtent.height, 1 },
 	};
+
 	vkCmdCopyImage(frameData.commandBuffers[frameIndex],
 		frameData.computeOutputImage[frameIndex], VK_IMAGE_LAYOUT_GENERAL,
 		vulkanCore.GetSwapChainImage(imageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -131,7 +151,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 		.pNext = nullptr,
 		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-		.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+		.dstAccessMask = 0,
 		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -203,13 +223,13 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	queue->UpdateSwapChain(vulkanCore.GetSwapChain());
 	CreateDescriptorPool();
 
-	frameData.init(vulkanCore.GetPhysicalDevice(), vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
+	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,&blockTextureArray);
 	}
 
 }

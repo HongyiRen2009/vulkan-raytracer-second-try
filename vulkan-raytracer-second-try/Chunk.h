@@ -8,9 +8,10 @@
 #include <unordered_map>
 #include <memory>
 #include <functional> 
+#include "ChunkTypes.h"
 using namespace glm;
 using namespace std;
-// Forward declaration for PerlinNoise
+
 class PerlinNoise;
 struct IVec2Hash {
     std::size_t operator()(const glm::ivec2& v) const noexcept {
@@ -34,6 +35,8 @@ public:
     static bool isInteractable(unsigned int blockId);
     static unsigned int maxBlockId();
     unsigned int blocks[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE]{};
+	static ChunkTypes::blockData blockDataArray[256];
+    static void populateBlockDataArray();
 private:
     unsigned int generateTerrainHeight(int x, int z);
     bool generateTreeValid(int x, int y, int z, int layerSize);

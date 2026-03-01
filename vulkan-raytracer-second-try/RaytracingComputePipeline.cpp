@@ -36,7 +36,14 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
-	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding, uniformBufferBinding,chunkSSBOBinding,voxelSSBOBinding };
+	VkDescriptorSetLayoutBinding blockTextureArrayBinding{
+		.binding = 4,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr,
+	};
+	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding, uniformBufferBinding,chunkSSBOBinding,voxelSSBOBinding,blockTextureArrayBinding };
 	VkDescriptorSetLayoutCreateInfo layoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
@@ -49,7 +56,7 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 	CHECK_VK_RESULT(result,"vkCreateDescriptorSetLayout");
 	return descriptorSetLayout;
 }
-void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO ) {
+void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO,VulkanTexture* blockTextureArray ) {
 	VkDescriptorImageInfo outputImageInfo{
 		.sampler = VK_NULL_HANDLE,
 		.imageView = outputImageView,
@@ -69,6 +76,11 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.buffer = voxelSSBO,
 		.offset = 0,
 		.range = VK_WHOLE_SIZE,
+	};
+	VkDescriptorImageInfo blockTextureImageInfo{
+		.sampler = blockTextureArray->sampler,
+		.imageView = blockTextureArray->imageView,
+		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	};
 	VkWriteDescriptorSet writeDescriptorSet{
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -118,7 +130,19 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 	.pBufferInfo = &voxelSSBOInfo,
 	.pTexelBufferView = nullptr,
 	};
-	std::vector<VkWriteDescriptorSet> descriptorWrites = { writeDescriptorSet, uniformBufferWrite,chunkSSBOWrite,voxelSSBOWrite };
+	VkWriteDescriptorSet blockTextureWrite{
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.pNext = nullptr,
+		.dstSet = descriptorSet,
+		.dstBinding = 4,
+		.dstArrayElement = 0,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.pImageInfo = &blockTextureImageInfo,
+		.pBufferInfo = nullptr,
+		.pTexelBufferView = nullptr,
+	};
+	std::vector<VkWriteDescriptorSet> descriptorWrites = { writeDescriptorSet, uniformBufferWrite,chunkSSBOWrite,voxelSSBOWrite,blockTextureWrite };
 	vkUpdateDescriptorSets(logicalDevice, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 
 }

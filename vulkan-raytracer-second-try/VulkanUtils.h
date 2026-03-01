@@ -10,7 +10,9 @@ namespace my_vulkan
 	static class VulkanUtils
 	{
 	public:
+			
 				static VkShaderModule CreateShaderModule(VkDevice device, const std::string& filename);
+				static void BeginCommandBuffer(VkCommandBuffer CommandBuffer,VkCommandBufferUsageFlags usageFlags);
 	private:
 				static std::vector<char> readFile(const std::string& filename);
 	};

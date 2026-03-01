@@ -200,11 +200,10 @@ blockUV snow = {
 		10,
 }
 };
-
 blockUV blockUVs[9] = {
 	grass,dirt,stone,wood,leaf,water,sand,gravel,snow
 };
-
+ChunkTypes::blockData Chunk::blockDataArray[256];
 // --- Chunk methods ---
 int placed = 0;
 int missing = 0;
@@ -215,6 +214,30 @@ Chunk::Chunk(unsigned int seed, ivec2 spawnPosition)
 }
 unsigned int Chunk::maxBlockId() {
 	return sizeof(blockUVs) / sizeof(blockUVs[0]);
+}
+void Chunk::populateBlockDataArray() {
+	for (int i = 0; i < 256; ++i) {
+		blockDataArray[i] = {};
+	}
+
+	for (unsigned int i = 0; i < maxBlockId(); ++i) {
+		ChunkTypes::blockData data{};
+		data.face0123 = glm::uvec4(
+			blockUVs[i].blockBottomLefts[0],
+			blockUVs[i].blockBottomLefts[1],
+			blockUVs[i].blockBottomLefts[2],
+			blockUVs[i].blockBottomLefts[3]
+		);
+		data.face45pad = glm::uvec4(
+			blockUVs[i].blockBottomLefts[4],
+			blockUVs[i].blockBottomLefts[5],
+			0u,
+			0u
+		);
+
+		// voxel ID 0 = air, so block i maps to ID i+1
+		blockDataArray[i + 1] = data;
+	}
 }
 unsigned int  Chunk::generateTerrainHeight(int x, int z) {
 	int maxheight = 200;

@@ -30,7 +30,7 @@ namespace my_vulkan
 			uint32_t GetQueueFamilyIndex() const { return (uint32_t)queueFamilyIndex; }
 			VkDevice GetLogicalDevice() const { return logicalDevice; }
 			VkCommandPool GetCommandPool() const { return commandPool; }
-			VkPhysicalDevice GetPhysicalDevice() { return physicalDevices.GetSelectedPhysicalDevice().device; }
+			VulkanPhysicalDevices* GetPhysicalDevices() { return &physicalDevices; }
 			VkExtent2D surfaceExtent;
 			void RecreateSwapChain();
 		private:

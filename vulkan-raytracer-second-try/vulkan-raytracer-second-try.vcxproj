@@ -139,6 +139,7 @@
     <ClCompile Include="VulkanCore.cpp" />
     <ClCompile Include="VulkanPhysicalDevices.cpp" />
     <ClCompile Include="VulkanQueue.cpp" />
+    <ClCompile Include="VulkanTexture.cpp" />
     <ClCompile Include="VulkanUtils.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -146,6 +147,7 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="Chunk.h" />
     <ClInclude Include="ChunkManager.h" />
+    <ClInclude Include="ChunkTypes.h" />
     <ClInclude Include="ComputePipeline.h" />
     <ClInclude Include="FrameData.h" />
     <ClInclude Include="RaytracingComputePipeline.h" />
@@ -153,6 +155,7 @@
     <ClInclude Include="VulkanCore.h" />
     <ClInclude Include="VulkanPhysicalDevices.h" />
     <ClInclude Include="VulkanQueue.h" />
+    <ClInclude Include="VulkanTexture.h" />
     <ClInclude Include="VulkanUtils.h" />
   </ItemGroup>
   <ItemGroup>

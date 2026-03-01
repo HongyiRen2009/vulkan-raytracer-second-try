@@ -31,6 +31,9 @@ namespace my_vulkan
 		FrameData frameData;
 		VulkanQueue* queue = nullptr;
 		Camera* camera;
+		VulkanTexture blockTextureArray;
+		VkCommandBuffer copyCommandBuffer = VK_NULL_HANDLE;
+		void CreateCopyCommandBuffer();
 		void CreateDescriptorPool();
 		void RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 		void RecordComputeCommandBuffer();

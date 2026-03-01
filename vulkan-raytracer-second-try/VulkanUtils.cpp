@@ -29,4 +29,14 @@ namespace my_vulkan
 
 		return buffer;
 	}
+	 void VulkanUtils::BeginCommandBuffer(VkCommandBuffer CommandBuffer, VkCommandBufferUsageFlags usageFlags) {
+		 VkCommandBufferBeginInfo beginInfo = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.pNext = nullptr,
+			.flags = usageFlags,
+			.pInheritanceInfo = nullptr
+		 };
+		 VkResult result = vkBeginCommandBuffer(CommandBuffer,&beginInfo);
+		 CHECK_VK_RESULT(result,"vkBeginCommandBuffer");
+	}
 }
