@@ -168,23 +168,20 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	VkResult result = vkEndCommandBuffer(frameData.commandBuffers[frameIndex]);
 	CHECK_VK_RESULT(result, "vkEndCommandBuffer");
 }
-uint32_t hashChunkPos(ivec2 pos) {
-	uint32_t hash = uint32_t(pos.x * 73856093) ^ uint32_t(pos.y * 19349663);
-	return hash % 1000u;
-}
 
-void VulkanApp::UpdateChunkSSBO(vector<Chunk>& chunks) {
+void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
+	vector<Chunk>& chunks = chunkManager->GetChunks();
 	unsigned int CHUNK_SSBO_DATA_SIZE = Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE * Chunk::CHUNK_HEIGHT;
 	unsigned int CHUNK_SSBO_DATA_SIZE_BYTES = CHUNK_SSBO_DATA_SIZE * sizeof(unsigned int);
 	for (auto& chunk : chunks) {
-
+		uint32_t hash = chunkManager->hashChunkPos(chunk.chunkPosition);
 		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 			if (!chunk.isDirty) continue;
 			ChunkData data = {
 				.chunkPos = chunk.chunkPosition,
 				.gpuSlot = chunk.gpuSlot,
 			};
-			frameData.chunkSSBO[i].AddData(vulkanCore.GetLogicalDevice(), &data, sizeof(ChunkData), hashChunkPos(data.chunkPos) * sizeof(ChunkData));
+			frameData.chunkSSBO[i].AddData(vulkanCore.GetLogicalDevice(), &data, sizeof(ChunkData),  hash* sizeof(ChunkData));
 			frameData.voxelSSBO[i].AddData(vulkanCore.GetLogicalDevice(), chunk.blocks, CHUNK_SSBO_DATA_SIZE_BYTES, data.gpuSlot * CHUNK_SSBO_DATA_SIZE_BYTES);
 
 		}
@@ -242,5 +239,7 @@ void VulkanApp::Cleanup() {
 		cout << "Descriptor pool destroyed successfully!" << std::endl;
 	}
 	frameData.Cleanup(vulkanCore.GetCommandPool());
+	blockTextureArray.Cleanup(vulkanCore.GetLogicalDevice());
+	
 	vulkanCore.Cleanup();
 }

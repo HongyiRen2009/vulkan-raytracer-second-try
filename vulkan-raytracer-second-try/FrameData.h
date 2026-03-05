@@ -5,6 +5,7 @@
 #include <iostream>
 #include "BufferAndMemory.h"
 #include "RaytracingComputePipeline.h"
+#include "Chunk.h"
 using namespace std;
 namespace my_vulkan
 {

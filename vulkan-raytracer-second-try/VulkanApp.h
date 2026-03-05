@@ -9,6 +9,7 @@
 #include "FrameData.h"
 #include "Camera.h"
 #include "Chunk.h"
+#include "ChunkManager.h"
 namespace my_vulkan
 {
 
@@ -22,7 +23,7 @@ namespace my_vulkan
 			void Render();
 			void Cleanup();
 			void OnWindowResized(int width=-1, int height=-1);
-			void UpdateChunkSSBO(vector<Chunk>& chunks);
+			void UpdateChunkSSBO(ChunkManager* chunkManager);
 	private:
 		VulkanCore vulkanCore;
 		int numImages = 0;

@@ -45,8 +45,9 @@ int main() {
 	camera->updateAspectRatio(static_cast<float>(windowWidth) / static_cast<float>(windowHeight));
 	vulkanApp.Init("Vulkan App", window,camera);
 	Chunk::populateBlockDataArray();
-	chunkManager.loadChunk(seed,ivec2(0,0));
-	vulkanApp.UpdateChunkSSBO(chunkManager.chunks);
+	chunkManager.init(seed);
+	chunkManager.generateChunksAroundCamera(ivec2(0,0));
+	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	if (!glfwVulkanSupported()) {
 		return -1;
 	}

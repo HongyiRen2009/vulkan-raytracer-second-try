@@ -24,6 +24,7 @@ public:
 
     static constexpr unsigned int CHUNK_SIZE = 16;
     static constexpr unsigned int CHUNK_HEIGHT = 256;
+	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE*CHUNK_SIZE*CHUNK_HEIGHT*sizeof(unsigned int);
     ivec2 chunkPosition;
     Chunk(unsigned int seed, ivec2 spawnPosition);
     void generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace);

@@ -46,6 +46,15 @@ void BufferAndMemory::CreateBuffer(VkPhysicalDevice physicalDevice, VkDevice log
 	CHECK_VK_RESULT(result,"vkAllocateMemory");
 	result = vkBindBufferMemory(logicalDevice, buffer, memory, 0);
 	CHECK_VK_RESULT(result,"vkBindBufferMemory");
+
+	// Zero init the buffer memory
+	void* mappedData;
+	result = vkMapMemory(logicalDevice, memory, 0, bufferSize, 0, &mappedData);
+	CHECK_VK_RESULT(result, "vkMapMemory");
+	memset(mappedData, -1, bufferSize);
+	vkUnmapMemory(logicalDevice, memory);
+
+	
 }
 void BufferAndMemory::Cleanup(VkDevice logicalDevice) {
 	if (buffer != VK_NULL_HANDLE) {

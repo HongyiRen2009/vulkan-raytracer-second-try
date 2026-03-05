@@ -16,7 +16,7 @@ namespace my_vulkan
 		uint32_t CHUNK_HEIGHT;
 		ChunkTypes::blockData blockDataArray[256];
 	};
-	struct ChunkData {
+	struct alignas(16) ChunkData {
 		glm::vec2 chunkPos;
 		uint32_t gpuSlot;
 	};

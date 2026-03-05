@@ -6,10 +6,11 @@ struct blockData{
     uvec4 face45pad;  // +Y, -Y, pad, pad
 };
 
-struct ChunkData{
-    vec2 chunkPos;
-    uint gpuOffset;
-};
+    struct ChunkData{
+        vec2 chunkPos;
+        uint gpuOffset;
+        uint _pad;
+    };
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(binding = 0, rgba8) uniform writeonly image2D img;
 layout(binding = 1) uniform UniformBufferObject
@@ -56,23 +57,26 @@ int findChunk(ivec2 chunkPos) {
         if (ivec2(chunkSSBO.chunkData[index].chunkPos) == chunkPos) {
             return int(index);
         }
-        if (chunkSSBO.chunkData[index].gpuOffset == 0u) {
-            return -1;
-        }
     }
     return -1;
 }
 
+
 uint getVoxel(uint chunkIndex, ivec3 localPos)
 {
-    if (localPos.x < 0 || localPos.x >= ubo.CHUNK_SIZE || 
-        localPos.z < 0 || localPos.z >= ubo.CHUNK_SIZE || 
+    if (localPos.x < 0 || localPos.x >= ubo.CHUNK_SIZE ||
+        localPos.z < 0 || localPos.z >= ubo.CHUNK_SIZE ||
         localPos.y < 0 || localPos.y >= ubo.CHUNK_HEIGHT) {
         return 0u;
     }
-    uint voxelIndex = chunkSSBO.chunkData[chunkIndex].gpuOffset + 
-                      uint(localPos.x * ubo.CHUNK_HEIGHT*ubo.CHUNK_SIZE + localPos.y * ubo.CHUNK_SIZE + localPos.z);
-    return voxelSSBO.voxels[voxelIndex];
+
+    uint chunkVolume = ubo.CHUNK_SIZE * ubo.CHUNK_SIZE * ubo.CHUNK_HEIGHT;
+    uint base = chunkSSBO.chunkData[chunkIndex].gpuOffset * chunkVolume;
+    uint localIndex = uint(localPos.x) * (ubo.CHUNK_HEIGHT * ubo.CHUNK_SIZE)
+                    + uint(localPos.y) * ubo.CHUNK_SIZE
+                    + uint(localPos.z);
+
+    return voxelSSBO.voxels[base + localIndex];
 }
 
 vec2 getUVForFace(vec3 hitPos, vec3 normal) {
@@ -213,6 +217,6 @@ void main()
         vec4 litColor = vec4(result.color.rgb * brightness, result.color.a);
         imageStore(img, pixel, litColor);
     } else {
-        imageStore(img, pixel, vec4(0.0, 0.0, 0.0, 1.0));
+        imageStore(img, pixel, vec4(1.0, 0.749, 0.0, 1.0));
     }
 }
