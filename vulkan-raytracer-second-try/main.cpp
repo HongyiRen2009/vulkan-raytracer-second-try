@@ -11,6 +11,8 @@ VulkanApp vulkanApp;
 Camera* camera;
 ChunkManager chunkManager;
 unsigned int seed = 42;
+ivec2 lastCameraChunkPos = ivec2(0, 0);
+vec2 lastCameraLoadPos = vec2(0, 0);
 static void OnWindowResized(GLFWwindow* window, int width, int height) {
 	int _width = 0, _height = 0;
 	glfwGetFramebufferSize(window, &_width, &_height);
@@ -38,7 +40,18 @@ void processInput(GLFWwindow* window) {
 	}
 	camera->update();
 }
-
+void checkForChunkUpdates() {
+	ivec2 cameraChunkPos = ivec2(floor(camera->position.x / Chunk::CHUNK_SIZE), floor(camera->position.z / Chunk::CHUNK_SIZE));
+	vec2 cameraLoadPos = vec2(camera->position.x, camera->position.z);
+	vector<uint32_t> invalidChunks;
+	if (cameraChunkPos != lastCameraChunkPos&&distance(cameraLoadPos,lastCameraLoadPos)>Chunk::CHUNK_SIZE*1.5) {
+  		chunkManager.generateChunksAroundCamera(cameraChunkPos,invalidChunks);
+		vulkanApp.InvalidateChunksInGPU(invalidChunks);
+		vulkanApp.UpdateChunkSSBO(&chunkManager);
+		lastCameraChunkPos = cameraChunkPos;
+		lastCameraLoadPos = cameraLoadPos;
+	}
+}
 int main() {
 	initWindow();
 	camera = new Camera(window);
@@ -46,12 +59,14 @@ int main() {
 	vulkanApp.Init("Vulkan App", window,camera);
 	Chunk::populateBlockDataArray();
 	chunkManager.init(seed);
-	chunkManager.generateChunksAroundCamera(ivec2(0,0));
+	vector<uint32_t> _;
+	chunkManager.generateChunksAroundCamera(ivec2(0,0),_);
 	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	if (!glfwVulkanSupported()) {
 		return -1;
 	}
 	while (!glfwWindowShouldClose(window)) {
+		checkForChunkUpdates();
 		glfwPollEvents();
 		vulkanApp.Render();
 		processInput(window);

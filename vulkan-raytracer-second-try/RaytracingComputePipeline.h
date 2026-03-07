@@ -19,6 +19,7 @@ namespace my_vulkan
 	struct alignas(16) ChunkData {
 		glm::vec2 chunkPos;
 		uint32_t gpuSlot;
+		uint32_t valid;
 	};
 	class RaytracingComputePipeline : public ComputePipeline
 	{

@@ -24,6 +24,7 @@ namespace my_vulkan
 			void Cleanup();
 			void OnWindowResized(int width=-1, int height=-1);
 			void UpdateChunkSSBO(ChunkManager* chunkManager);
+			void InvalidateChunksInGPU(vector<uint32_t> slotIndices);
 	private:
 		VulkanCore vulkanCore;
 		int numImages = 0;

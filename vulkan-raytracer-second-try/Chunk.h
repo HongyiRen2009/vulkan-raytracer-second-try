@@ -25,11 +25,12 @@ public:
     static constexpr unsigned int CHUNK_SIZE = 16;
     static constexpr unsigned int CHUNK_HEIGHT = 256;
 	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE*CHUNK_SIZE*CHUNK_HEIGHT*sizeof(unsigned int);
+    unsigned int hashTableSlot;
     ivec2 chunkPosition;
     Chunk(unsigned int seed, ivec2 spawnPosition);
     void generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace);
     ~Chunk();
-    bool isDirty = true;
+    bool isDirty = false;
     unsigned int gpuSlot;
     unsigned int getBlock(int x, int y, int z);
     void setBlock(int x, int y, int z, unsigned int newBlock);

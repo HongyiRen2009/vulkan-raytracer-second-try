@@ -12,22 +12,10 @@ class ChunkManager {
 		vector<Chunk>& GetChunks() {
 			return chunks;
 		}
-		void generateChunksAroundCamera( ivec2 cameraChunkPos);
-		uint32_t hashChunkPos(ivec2 pos) {
-			uint32_t hash = uint32_t(pos.x * 73856093) ^ uint32_t(pos.y * 19349663);
-			for (int i = 0;i < 1000;i++) {
-				if(hashedChunkPositions.find(hash) != hashedChunkPositions.end()) {
-					hash += 1;
-				}
-				else {
-					break;
-				}
-			}
-			hashedChunkPositions.insert(hash);
-			return hash % 1000u;
-		}
+		void generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint32_t>& invalidChunkIndices);
+		uint hashChunkPos(ivec2 pos); 
 	private:
-		int renderDistance = 4;
+		int renderDistance = 8;
 	unsigned int seed;
 	vector<Chunk> chunks;
 
@@ -35,14 +23,7 @@ class ChunkManager {
 	set<uint32_t> hashedChunkPositions;
 	unsigned int currentChunkIndex = 0;
 	unsigned int popFreeSlot();
-	void unloadChunk(Chunk* chunk) {
-		freeChunkSlots.push(chunk->gpuSlot);
-		hashedChunkPositions.erase(hashChunkPos(chunk->chunkPosition));
-		chunks.erase(remove_if(chunks.begin(), chunks.end(), [chunk](const Chunk& c) {
-			return c.chunkPosition == chunk->chunkPosition;
-			}), chunks.end());
-		delete chunk;
-	}
+	void unloadChunk(int index);
 	void loadChunk( ivec2 spawnPosition);
 	vector <tuple<ivec3, unsigned int>> unloadedChunkBlockstoPlace;
 

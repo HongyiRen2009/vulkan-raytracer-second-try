@@ -22,6 +22,12 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
 		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,&blockTextureArray);
 	}
+	ChunkData emptySlot = { .chunkPos = glm::vec2(0.0f), .gpuSlot = 0, .valid = 0 };
+	for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
+		for (uint32_t i = 0; i < 10000; i++) {
+			frameData.chunkSSBO[frameIdx].AddData(vulkanCore.GetLogicalDevice(), &emptySlot, sizeof(ChunkData), i * sizeof(ChunkData));
+		}
+	}
 }
 void VulkanApp::CreateCopyCommandBuffer() {
 	VkCommandBufferAllocateInfo allocInfo{
@@ -173,21 +179,38 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 	vector<Chunk>& chunks = chunkManager->GetChunks();
 	unsigned int CHUNK_SSBO_DATA_SIZE = Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE * Chunk::CHUNK_HEIGHT;
 	unsigned int CHUNK_SSBO_DATA_SIZE_BYTES = CHUNK_SSBO_DATA_SIZE * sizeof(unsigned int);
-	for (auto& chunk : chunks) {
-		uint32_t hash = chunkManager->hashChunkPos(chunk.chunkPosition);
-		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			if (!chunk.isDirty) continue;
-			ChunkData data = {
-				.chunkPos = chunk.chunkPosition,
-				.gpuSlot = chunk.gpuSlot,
-			};
-			frameData.chunkSSBO[i].AddData(vulkanCore.GetLogicalDevice(), &data, sizeof(ChunkData),  hash* sizeof(ChunkData));
-			frameData.voxelSSBO[i].AddData(vulkanCore.GetLogicalDevice(), chunk.blocks, CHUNK_SSBO_DATA_SIZE_BYTES, data.gpuSlot * CHUNK_SSBO_DATA_SIZE_BYTES);
 
+	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
+
+	for (auto& chunk : chunks) {
+		if (!chunk.isDirty) continue;
+
+		uint32_t slotIndex = chunk.hashTableSlot;
+
+		ChunkData data = {
+			.chunkPos = glm::vec2(chunk.chunkPosition),
+			.gpuSlot = chunk.gpuSlot,
+			.valid = 1
+		};
+
+		for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
+			frameData.chunkSSBO[frameIdx].AddData(logicalDevice, &data, sizeof(ChunkData), slotIndex * sizeof(ChunkData));
+			frameData.voxelSSBO[frameIdx].AddData(logicalDevice, chunk.blocks, CHUNK_SSBO_DATA_SIZE_BYTES, chunk.gpuSlot * CHUNK_SSBO_DATA_SIZE_BYTES);
 		}
 		chunk.isDirty = false;
 	}
-
+}
+void VulkanApp::InvalidateChunksInGPU(vector<uint32_t> slotIndices) {
+	for (int i = 0;i < slotIndices.size();i++) {
+		ChunkData data = {
+			.chunkPos = glm::vec2(0.0f),
+			.gpuSlot = 0,
+			.valid = 0
+		};
+		for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
+			frameData.chunkSSBO[frameIdx].AddData(vulkanCore.GetLogicalDevice(), &data, sizeof(ChunkData), slotIndices[i] * sizeof(ChunkData));
+		}
+	}
 }
 void VulkanApp::Render() {
 	queue->WaitIdle();
