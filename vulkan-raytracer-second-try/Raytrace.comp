@@ -1,16 +1,21 @@
 #version 460
 #extension GL_KHR_vulkan_glsl: enable
-const uint CHUNK_SSBO_DATA_SIZE = 16*16*256;
+#extension GL_EXT_shader_explicit_arithmetic_types: enable
 struct blockData{
     uvec4 face0123;   // +Z, -Z, -X, +X
     uvec4 face45pad;  // +Y, -Y, pad, pad
 };
 
-    struct ChunkData{
-        vec2 chunkPos;
-        uint gpuOffset;
-        uint valid;
-    };
+struct ChunkData{
+    vec2 chunkPos;
+    uint gpuSlot;
+    uint valid;
+};
+struct Node {
+    uint64_t mask;
+    uint32_t blockId;
+    uint32_t firstChildIndex;
+};
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(binding = 0, rgba8) uniform writeonly image2D img;
 layout(binding = 1) uniform UniformBufferObject
@@ -19,16 +24,15 @@ layout(binding = 1) uniform UniformBufferObject
     mat4 proj;
     vec3 cameraPos;
     uint CHUNK_SIZE;
-    uint CHUNK_HEIGHT;
     blockData blockDataArray[256];
 } ubo;
 layout(binding=2) buffer ChunkSSBO
 {
     ChunkData chunkData[10000];
 } chunkSSBO;
-layout(binding=3) buffer VoxelSSBO
+layout(std430, binding=3) buffer SVOBuffer
 {
-    uint voxels[CHUNK_SSBO_DATA_SIZE*1000];
+    Node nodes[];
 } voxelSSBO;
 layout(binding=4) uniform sampler2DArray voxelTextureArray;
 struct RaytraceResult {
@@ -72,22 +76,48 @@ int findChunk(ivec2 chunkPos) {
     }
     return -1;
 }
+uint traverseTree(uint32_t nodeIdx, ivec3 localPos,uint rootNodeIdx) {
+    Node currentNode = voxelSSBO.nodes[nodeIdx];
+
+    // For CHUNK_SIZE=64 and 4x4x4 branching, depth = 3
+    // (generalized here)
+    uint depth = 0u;
+    for (uint s = ubo.CHUNK_SIZE; s > 1u; s /= 4u) {
+        depth++;
+    }
+
+    for (int level = int(depth) - 1; level >= 0; --level) {
+        if (currentNode.mask == 0ul) return 0u;
+        if (currentNode.blockId != 0u) return currentNode.blockId;
+
+        uvec3 child = (uvec3(localPos) >> uint(level * 2)) & uvec3(3u);
+        uint bitPos = child.x * 16u + child.y * 4u + child.z;
+
+        uint64_t bit = (1ul << bitPos);
+        if ((currentNode.mask & bit) == 0ul) return 0u;
+
+        uint64_t lowerBits = bit - 1ul;
+        uint64_t masked = currentNode.mask & lowerBits;
+        uint offset = bitCount(uint(masked)) + bitCount(uint(masked >> 32))+rootNodeIdx;
+
+        currentNode = voxelSSBO.nodes[currentNode.firstChildIndex + offset];
+    }
+
+    return currentNode.blockId;
+}
 
 uint getVoxel(uint chunkIndex, ivec3 localPos)
 {
-    if (localPos.x < 0 || localPos.x >= ubo.CHUNK_SIZE ||
-        localPos.z < 0 || localPos.z >= ubo.CHUNK_SIZE ||
-        localPos.y < 0 || localPos.y >= ubo.CHUNK_HEIGHT) {
+    if (localPos.x < 0 || localPos.x >= int(ubo.CHUNK_SIZE) ||
+        localPos.y < 0 || localPos.y >= int(ubo.CHUNK_SIZE) ||
+        localPos.z < 0 || localPos.z >= int(ubo.CHUNK_SIZE)) {
         return 0u;
     }
 
-    uint chunkVolume = ubo.CHUNK_SIZE * ubo.CHUNK_SIZE * ubo.CHUNK_HEIGHT;
-    uint base = chunkSSBO.chunkData[chunkIndex].gpuOffset * chunkVolume;
-    uint localIndex = uint(localPos.x) * (ubo.CHUNK_HEIGHT * ubo.CHUNK_SIZE)
-                    + uint(localPos.y) * ubo.CHUNK_SIZE
-                    + uint(localPos.z);
+    uint chunkVolume = ubo.CHUNK_SIZE * ubo.CHUNK_SIZE * ubo.CHUNK_SIZE;
+    uint rootNodeIdx = chunkSSBO.chunkData[chunkIndex].gpuSlot * chunkVolume;
 
-    return voxelSSBO.voxels[base + localIndex];
+    return traverseTree(rootNodeIdx, localPos,rootNodeIdx);
 }
 
 vec2 getUVForFace(vec3 hitPos, vec3 normal) {

@@ -102,7 +102,6 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.proj = camera->getProjectionMatrix(),
 		.cameraPos = camera->position,
 		.CHUNK_SIZE = Chunk::CHUNK_SIZE,
-		.CHUNK_HEIGHT = Chunk::CHUNK_HEIGHT,
 		.blockDataArray = {}
 	};
 	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
@@ -174,30 +173,45 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	VkResult result = vkEndCommandBuffer(frameData.commandBuffers[frameIndex]);
 	CHECK_VK_RESULT(result, "vkEndCommandBuffer");
 }
-
 void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
-	vector<Chunk>& chunks = chunkManager->GetChunks();
-	unsigned int CHUNK_SSBO_DATA_SIZE = Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE * Chunk::CHUNK_HEIGHT;
-	unsigned int CHUNK_SSBO_DATA_SIZE_BYTES = CHUNK_SSBO_DATA_SIZE * sizeof(unsigned int);
+	const vector<unique_ptr<Chunk>>& chunks = chunkManager->GetChunks();
+	size_t maxNodesPerChunk = Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE;
+	size_t bytesPerChunkSlot = maxNodesPerChunk * sizeof(Node);
 
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
 
 	for (auto& chunk : chunks) {
-		if (!chunk.isDirty) continue;
+		if (!chunk->isDirty) continue;
 
-		uint32_t slotIndex = chunk.hashTableSlot;
+		uint32_t slotIndex = chunk->hashTableSlot;
 
 		ChunkData data = {
-			.chunkPos = glm::vec2(chunk.chunkPosition),
-			.gpuSlot = chunk.gpuSlot,
+			.chunkPos = glm::vec2(chunk->chunkPosition),
+			.gpuSlot = chunk->gpuSlot,
 			.valid = 1
 		};
 
 		for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
 			frameData.chunkSSBO[frameIdx].AddData(logicalDevice, &data, sizeof(ChunkData), slotIndex * sizeof(ChunkData));
-			frameData.voxelSSBO[frameIdx].AddData(logicalDevice, chunk.blocks, CHUNK_SSBO_DATA_SIZE_BYTES, chunk.gpuSlot * CHUNK_SSBO_DATA_SIZE_BYTES);
+			if (!chunk->nodePool.empty()) {
+				size_t nodePoolSizeBytes = chunk->nodePool.size() * sizeof(Node);
+				// CRITICAL FIX: Calculate offset in bytes from gpuSlot reservation
+				VkDeviceSize offsetBytes = static_cast<VkDeviceSize>(chunk->gpuSlot) * bytesPerChunkSlot;
+				frameData.voxelSSBO[frameIdx].AddData(
+					logicalDevice,
+					chunk->nodePool.data(),
+					nodePoolSizeBytes,
+					offsetBytes
+				);
+
+				// Debug: Verify the offset calculation
+				cout << "Chunk at " << chunk->chunkPosition.x << "," << chunk->chunkPosition.y
+					<< " - gpuSlot: " << chunk->gpuSlot
+					<< ", offset bytes: " << offsetBytes
+					<< ", nodes: " << chunk->nodePool.size() << endl;
+			}
 		}
-		chunk.isDirty = false;
+		chunk->isDirty = false;
 	}
 }
 void VulkanApp::InvalidateChunksInGPU(vector<uint32_t> slotIndices) {

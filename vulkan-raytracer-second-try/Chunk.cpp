@@ -9,14 +9,18 @@
 #include <cmath>
 #include <iostream>
 #include <unordered_map>
-
+#include <queue>
 #include <array>
 #include <vector>
 #include <mutex>
+#include <utility>
+#include <iostream>
+#include <thread>
+#include <chrono>
 
 using namespace std;
 using namespace glm;
-unsigned int waterLevel = 60;
+unsigned int waterLevel = 10;
 unsigned int mountainLevel = 80;
 unsigned int snowLevel = 100;
 // --- PerlinNoise class (can be moved to its own file if desired) ---
@@ -240,8 +244,8 @@ void Chunk::populateBlockDataArray() {
 	}
 }
 unsigned int  Chunk::generateTerrainHeight(int x, int z) {
-	int maxheight = 200;
-	int minheight = 20;
+	int maxheight = 50;
+	int minheight = 10;
 	// Generate height using 2D perlin noise on the horizontal plane
 	float noiseValue = perlinNoise->perlinNoise(x, z, 8, 0.5, 0.005);
 
@@ -258,14 +262,14 @@ bool Chunk::isInteractable(unsigned int blockId) {
 }
 bool Chunk::generateTreeValid(int x, int y, int z, int layerSize) {
 	for (int i = 1;i <= 5;i++) {
-		if (x < 0 || x >= CHUNK_SIZE || y + i < 0 || y + i >= CHUNK_HEIGHT || z < 0 || z >= CHUNK_SIZE || getBlock(x, y + i, z) != 0) {
+		if (x < 0 || x >= CHUNK_SIZE || y + i < 0 || y + i >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE || getBlock(x, y + i, z) != 0) {
 			return false;
 		}
 	}
 	for (int i = 5;i < 9;i++) {
 		for (int j = -layerSize;j <= layerSize;j++) {
 			for (int k = -layerSize;k <= layerSize;k++) {
-				if (x + j < 0 || x + j >= CHUNK_SIZE || y + i < 0 || y + i >= CHUNK_HEIGHT || z + k < 0 || z + k >= CHUNK_SIZE || getBlock(x + j, y + i, z + k) != 0) {
+				if (x + j < 0 || x + j >= CHUNK_SIZE || y + i < 0 || y + i >= CHUNK_SIZE || z + k < 0 || z + k >= CHUNK_SIZE || getBlock(x + j, y + i, z + k) != 0) {
 					return false;
 				}
 			}
@@ -275,13 +279,13 @@ bool Chunk::generateTreeValid(int x, int y, int z, int layerSize) {
 }
 
 void Chunk::setBlock(int x, int y, int z, unsigned int newBlock) {
-	if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || z < 0 || z >= CHUNK_SIZE) {
+	if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
 		return;
 	}
 	blocks[x][y][z] = newBlock;
 }
 unsigned int Chunk::getBlock(int x, int y, int z) {
-	if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || z < 0 || z >= CHUNK_SIZE) {
+	if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
 		return 0;
 	}
 	return blocks[x][y][z];
@@ -332,11 +336,13 @@ void Chunk::generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>
 void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace) {
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
+
 			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.y * CHUNK_SIZE);
 			unsigned int terrainHeight = generateTerrainHeight(globalPosition.x, globalPosition.y);
 
 			// Fill blocks: solid below terrain height, air above
-			for (unsigned int j = 0; j < CHUNK_HEIGHT; j++) {
+			for (unsigned int j = 0; j < CHUNK_SIZE; j++) {
+
 				if (blocks[i][j][k] != 0) {
 					continue;
 				}
@@ -389,15 +395,111 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
 			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.y * CHUNK_SIZE);
 			unsigned int terrainHeight = generateTerrainHeight(globalPosition.x, globalPosition.y);
-			unsigned int waterLevel = 40;
-
+			unsigned int waterLevel = 10;
+			if (terrainHeight > CHUNK_SIZE - 1) {
+				continue;
+			}
 			if (terrainHeight >= waterLevel && perlinNoise->seededRandom(globalPosition.x, globalPosition.y, 2) && blocks[i][terrainHeight][k] == 1) {
 				generateTree(i, terrainHeight, k, unloadedChunkBlockstoPlace);
 			}
 		}
 	}
+	BuildTree(0, 0, 0, CHUNK_SIZE);
+}
+TempNode Chunk::CreateNode(int x, int y, int z, int size) {
+	TempNode node = {
+		.mask = 0,
+		.blockId = 0,
+		.childIndices = {}
+	};
+
+	if (size <= 1) {
+		node.blockId = blocks[x][y][z];
+		node.mask = (node.blockId == 0) ? 0ull : 1ull;
+		node.childCount = 0;
+		return node;
+	}
+
+	TempNode childNodes[64];
+	int childCount = 0;
+	bool isBlockIdInitialized = false;
+	bool hasAnyEmptyChild = false;
+
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			for (int k = 0; k < 4; k++) {
+				TempNode childNode = CreateNode(
+					x + (size / 4 * i),
+					y + (size / 4 * j),
+					z + (size / 4 * k),
+					size / 4
+				);
+
+				if (childNode.mask != 0) {
+					node.mask |= (1ull << (i * 16 + j * 4 + k));
+
+					if (!isBlockIdInitialized) {
+						node.blockId = childNode.blockId;
+						isBlockIdInitialized = true;
+					}
+					else if (node.blockId != childNode.blockId) {
+						node.blockId = 0;
+					}
+
+					childNodes[childCount++] = childNode;
+				}
+				else {
+					hasAnyEmptyChild = true;
+				}
+			}
+		}
+	}
+
+	node.childCount = static_cast<uint16_t>(childCount);
+
+	// Critical: cannot collapse to solid if any child is empty
+	if (hasAnyEmptyChild) {
+		node.blockId = 0;
+	}
+
+	if (node.blockId == 0 && node.mask != 0) {
+		for (int i = 0; i < childCount; i++) {
+			node.childIndices[i] = (uint32_t)childNodePool.size();
+			childNodePool.push_back(childNodes[i]);
+		}
+	}
+
+	return node;
 }
 
-
+void Chunk::BuildTree(int x, int y, int z, int size) {
+	childNodePool.clear();
+	nodePool.clear();
+	childNodePool.reserve(50000);
+	nodePool.reserve(50000);
+	TempNode rootNode = CreateNode(x, y, z, size);
+	queue<pair<TempNode*,uint32_t>> nodeQueue;
+	nodeQueue.push({ &rootNode, UINT32_MAX });
+	while (!nodeQueue.empty()) {
+		auto [currentNode, parentIdx] = nodeQueue.front();
+		nodeQueue.pop();
+		uint32_t currentIdx = (uint32_t)nodePool.size();
+		if(parentIdx!=UINT32_MAX){
+			nodePool[parentIdx].firstChildIndex = currentIdx;
+		}
+		Node node = {
+			.mask = currentNode->mask,
+			.blockId = currentNode->blockId,
+			.firstChildIndex = 0
+		};
+		nodePool.push_back(node);
+		if (currentNode->mask != 0 && currentNode->blockId == 0) {
+			for (int i = 0;i < currentNode->childCount;i++) {
+				nodeQueue.push({ &childNodePool[currentNode->childIndices[i]], i==0 ? (uint32_t)currentIdx:UINT32_MAX });
+			}
+		}
+	}
+	cout << "Finished building tree with " << nodePool.size() << " nodes."<< endl;
+}
 Chunk::~Chunk() {
 }

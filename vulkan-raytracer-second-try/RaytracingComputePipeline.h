@@ -13,7 +13,6 @@ namespace my_vulkan
 		glm::mat4 proj;
 		glm::vec3 cameraPos;
 		uint32_t CHUNK_SIZE;
-		uint32_t CHUNK_HEIGHT;
 		ChunkTypes::blockData blockDataArray[256];
 	};
 	struct alignas(16) ChunkData {

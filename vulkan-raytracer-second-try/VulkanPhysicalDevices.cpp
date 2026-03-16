@@ -106,6 +106,7 @@ void VulkanPhysicalDevices::init(VkInstance instance, VkSurfaceKHR surface) {
             cout << "    Type " << j << ": HeapIndex=" << memProps.memoryTypes[j].heapIndex << ", PropertyFlags=" << memProps.memoryTypes[j].propertyFlags << endl;
         }
 		vkGetPhysicalDeviceFeatures(physicalDevices[i].device, &physicalDevices[i].deviceFeatures);
+
     }
 
 

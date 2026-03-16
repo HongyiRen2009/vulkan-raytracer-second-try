@@ -200,8 +200,9 @@ namespace my_vulkan
 		for (int i = 0;i < numFrames;i++) {
 			uniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ComputeUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 			chunkSSBO[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ChunkData) * 10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(uint32_t) *Chunk::CHUNK_VOXEL_SIZE_IN_BYTES*1000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-			
+			size_t maxNodesPerChunk = Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE;
+			size_t totalNodeBytes = maxNodesPerChunk * 1000 * sizeof(Node);
+			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, totalNodeBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 		}
 	}
 	void FrameData::Cleanup(VkCommandPool commandPool) {

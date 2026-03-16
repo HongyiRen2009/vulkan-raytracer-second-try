@@ -163,8 +163,12 @@ namespace my_vulkan
 			VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME
 		};
 		// Enabled device features that are indicated with a bitmask. Things like multidrawindirect, geometry shader, tessellation shader, etc. are all features that can be enabled here.
-		const VkPhysicalDeviceFeatures deviceFeatures = {0};
-
+		const VkPhysicalDeviceFeatures deviceFeatures = {
+		.shaderInt64 = VK_TRUE,
+		};
+		if (physicalDevices.GetSelectedPhysicalDevice().deviceFeatures.shaderInt64 == VK_FALSE) {
+			cerr << "Selected physical device does not support shaderInt64, which is required for this application." << endl;
+		}
 		// Example of how to query for a specific feature
 		//if (physicalDevices.GetSelectedPhysicalDevice().deviceFeatures.samplerAnisotropy==VK_FALSE) {
 		//	cerr << "Selected physical device does not support sampler anisotropy, which is required for this application." << endl;

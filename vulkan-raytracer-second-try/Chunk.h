@@ -18,13 +18,23 @@ struct IVec2Hash {
         return std::hash<int>()(v.x) ^ (std::hash<int>()(v.y) << 1);
     }
 };
+struct TempNode {
+    uint64_t mask;
+    uint32_t blockId;
+	uint32_t childIndices[64];
+	uint16_t childCount;
+};
 
+struct Node {
+    uint64_t mask;
+    uint32_t blockId;
+    uint32_t firstChildIndex;
+};
 class Chunk {
 public:
-
-    static constexpr unsigned int CHUNK_SIZE = 16;
-    static constexpr unsigned int CHUNK_HEIGHT = 256;
-	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE*CHUNK_SIZE*CHUNK_HEIGHT*sizeof(unsigned int);
+    vector<Node> nodePool;
+    static constexpr unsigned int CHUNK_SIZE = 64;
+	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * sizeof(unsigned int); //Currently oversized
     unsigned int hashTableSlot;
     ivec2 chunkPosition;
     Chunk(unsigned int seed, ivec2 spawnPosition);
@@ -36,7 +46,7 @@ public:
     void setBlock(int x, int y, int z, unsigned int newBlock);
     static bool isInteractable(unsigned int blockId);
     static unsigned int maxBlockId();
-    unsigned int blocks[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE]{};
+    unsigned int blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE]{};
 	static ChunkTypes::blockData blockDataArray[256];
     static void populateBlockDataArray();
 private:
@@ -44,5 +54,9 @@ private:
     bool generateTreeValid(int x, int y, int z, int layerSize);
     void generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace);
     PerlinNoise* perlinNoise;
+    void BuildTree(int x, int y, int z, int size);
+    TempNode CreateNode(int x, int y, int z, int size);
+
+	vector<TempNode> childNodePool;
 
 };

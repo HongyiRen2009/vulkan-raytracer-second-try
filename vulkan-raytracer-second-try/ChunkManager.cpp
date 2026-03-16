@@ -17,9 +17,9 @@ unsigned int ChunkManager::popFreeSlot() {
 }
 void ChunkManager::generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint32_t>& invalidChunkIndices) {
 	for (int i = 0;i < chunks.size();i++) {
-		ivec2 chunkPos = chunks[i].chunkPosition;
+		ivec2 chunkPos = chunks[i]->chunkPosition;
 		if (abs(chunkPos.x - cameraChunkPos.x) > renderDistance || abs(chunkPos.y - cameraChunkPos.y) > renderDistance) {
-			invalidChunkIndices.push_back(chunks[i].hashTableSlot);
+			invalidChunkIndices.push_back(chunks[i]->hashTableSlot);
 			unloadChunk(i);
 			i--;
 		}
@@ -30,7 +30,7 @@ void ChunkManager::generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint
 			ivec2 chunkPos = cameraChunkPos + ivec2(x, z);
 			bool chunkExists = false;
 			for (const auto& chunk : chunks) {
-				if (chunk.chunkPosition == chunkPos) {
+				if (chunk->chunkPosition == chunkPos) {
 					chunkExists = true;
 					break;
 				}
@@ -58,9 +58,9 @@ uint32_t ChunkManager::hashChunkPos(ivec2 pos) {
 }
 void ChunkManager::loadChunk(ivec2 spawnPosition) {
 	unsigned int slot = popFreeSlot();
-	Chunk chunk(seed, spawnPosition);
-	chunk.gpuSlot = slot;
-	chunk.generateTerrain(&unloadedChunkBlockstoPlace);
+	auto chunk = std::make_unique<Chunk>(seed, spawnPosition);
+	chunk->gpuSlot = slot;
+	chunk->generateTerrain(&unloadedChunkBlockstoPlace);
 
 	uint32_t hash = hashChunkPos(spawnPosition);
 	uint32_t foundSlot = UINT32_MAX;
@@ -68,7 +68,7 @@ void ChunkManager::loadChunk(ivec2 spawnPosition) {
 	for (int i = 0; i < 100; i++) {
 		uint32_t index = (hash + i) % 10000;
 		if (hashedChunkPositions.find(index) == hashedChunkPositions.end()) {
-			chunk.hashTableSlot = index;
+			chunk->hashTableSlot = index;
 			hashedChunkPositions.insert(index);
 			foundSlot = index;
 			break;
@@ -76,18 +76,18 @@ void ChunkManager::loadChunk(ivec2 spawnPosition) {
 	}
 
 	if (foundSlot != UINT32_MAX) {
-		chunk.isDirty = true; 
-		chunks.push_back(chunk);
+		chunk->isDirty = true;
+		chunks.push_back(std::move(chunk));
 	}
 	else {
-		std::cout << "ERROR: No free hash slots available for chunk at " << spawnPosition.x << ", " << spawnPosition.y << endl;
+		std::cout << "ERROR: No free hash slots available for chunk at " << spawnPosition.x << ", " << spawnPosition.y << std::endl;
 		freeChunkSlots.push(slot);  // Return the slot since we can't use the chunk
 	}
 }
 void ChunkManager::unloadChunk(int index) {
 	
-	freeChunkSlots.push(chunks[index].gpuSlot);
-	hashedChunkPositions.erase(chunks[index].hashTableSlot);
+	freeChunkSlots.push(chunks[index]->gpuSlot);
+	hashedChunkPositions.erase(chunks[index]->hashTableSlot);
 	chunks.erase(chunks.begin()+index);
 
 	

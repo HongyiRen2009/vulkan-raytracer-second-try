@@ -9,15 +9,15 @@ class ChunkManager {
 		ChunkManager();
 		~ChunkManager();
 		void init(unsigned int seed);
-		vector<Chunk>& GetChunks() {
+		const vector<unique_ptr<Chunk>>& GetChunks() {
 			return chunks;
 		}
 		void generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint32_t>& invalidChunkIndices);
 		uint hashChunkPos(ivec2 pos); 
 	private:
-		int renderDistance = 8;
+		int renderDistance = 1;
 	unsigned int seed;
-	vector<Chunk> chunks;
+	vector<unique_ptr<Chunk>> chunks;
 
 	stack<unsigned int> freeChunkSlots;
 	set<uint32_t> hashedChunkPositions;
