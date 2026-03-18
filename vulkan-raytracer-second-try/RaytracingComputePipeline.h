@@ -14,6 +14,8 @@ namespace my_vulkan
 		glm::vec3 cameraPos;
 		uint32_t CHUNK_SIZE;
 		ChunkTypes::blockData blockDataArray[256];
+		alignas(16) glm::ivec3 allChunksMin;
+		alignas(16) glm::ivec3 allChunksMax;
 	};
 	struct alignas(16) ChunkData {
 		glm::vec2 chunkPos;

@@ -14,6 +14,8 @@ class ChunkManager {
 		}
 		void generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint32_t>& invalidChunkIndices);
 		uint hashChunkPos(ivec2 pos); 
+		static ivec3 allChunksMin;
+		static ivec3 allChunksMax;
 	private:
 		int renderDistance = 1;
 	unsigned int seed;
@@ -26,5 +28,6 @@ class ChunkManager {
 	void unloadChunk(int index);
 	void loadChunk( ivec2 spawnPosition);
 	vector <tuple<ivec3, unsigned int>> unloadedChunkBlockstoPlace;
+
 
 };

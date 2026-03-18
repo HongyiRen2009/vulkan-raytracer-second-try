@@ -5,7 +5,10 @@ struct blockData{
     uvec4 face0123;   // +Z, -Z, -X, +X
     uvec4 face45pad;  // +Y, -Y, pad, pad
 };
-
+struct traverseResult{
+    uint voxelValue;
+    uint depth;
+};
 struct ChunkData{
     vec2 chunkPos;
     uint gpuSlot;
@@ -25,6 +28,8 @@ layout(binding = 1) uniform UniformBufferObject
     vec3 cameraPos;
     uint CHUNK_SIZE;
     blockData blockDataArray[256];
+    ivec3 allChunksMin;
+    ivec3 allChunksMax;
 } ubo;
 layout(binding=2) buffer ChunkSSBO
 {
@@ -76,25 +81,21 @@ int findChunk(ivec2 chunkPos) {
     }
     return -1;
 }
-uint traverseTree(uint32_t nodeIdx, ivec3 localPos,uint rootNodeIdx) {
+uint depthToStepSize(uint depth){
+    return depth > 0u ? (1u << (depth * 2u)) : 1u; // 4^depth
+}
+traverseResult traverseTree(uint32_t nodeIdx, ivec3 localPos,uint rootNodeIdx) {
     Node currentNode = voxelSSBO.nodes[nodeIdx];
-
-    // For CHUNK_SIZE=64 and 4x4x4 branching, depth = 3
-    // (generalized here)
-    uint depth = 0u;
-    for (uint s = ubo.CHUNK_SIZE; s > 1u; s /= 4u) {
-        depth++;
-    }
-
+    uint depth = uint(log2(ubo.CHUNK_SIZE) / 2);
     for (int level = int(depth) - 1; level >= 0; --level) {
-        if (currentNode.mask == 0ul) return 0u;
-        if (currentNode.blockId != 0u) return currentNode.blockId;
+        if (currentNode.mask == 0ul) return traverseResult(0u,uint(level));
+        if (currentNode.blockId != 0u) return traverseResult(currentNode.blockId,uint(level));
 
         uvec3 child = (uvec3(localPos) >> uint(level * 2)) & uvec3(3u);
         uint bitPos = child.x * 16u + child.y * 4u + child.z;
 
         uint64_t bit = (1ul << bitPos);
-        if ((currentNode.mask & bit) == 0ul) return 0u;
+        if ((currentNode.mask & bit) == 0ul) return traverseResult(0u,uint(level));
 
         uint64_t lowerBits = bit - 1ul;
         uint64_t masked = currentNode.mask & lowerBits;
@@ -103,15 +104,15 @@ uint traverseTree(uint32_t nodeIdx, ivec3 localPos,uint rootNodeIdx) {
         currentNode = voxelSSBO.nodes[currentNode.firstChildIndex + offset];
     }
 
-    return currentNode.blockId;
+    return traverseResult(currentNode.blockId,0u);
 }
 
-uint getVoxel(uint chunkIndex, ivec3 localPos)
+traverseResult getVoxel(uint chunkIndex, ivec3 localPos)
 {
     if (localPos.x < 0 || localPos.x >= int(ubo.CHUNK_SIZE) ||
         localPos.y < 0 || localPos.y >= int(ubo.CHUNK_SIZE) ||
         localPos.z < 0 || localPos.z >= int(ubo.CHUNK_SIZE)) {
-        return 0u;
+        return traverseResult(0u,0u);
     }
 
     uint chunkVolume = ubo.CHUNK_SIZE * ubo.CHUNK_SIZE * ubo.CHUNK_SIZE;
@@ -152,10 +153,34 @@ vec4 sampleVoxelTexture(uint voxelValue, vec3 hitPos, vec3 normal) {
     uint layer = getFaceTextureLayer(voxelValue, normal);
     return texture(voxelTextureArray, vec3(uv, layer));
 }
+float chunkAABBIntersection(vec3 rayOrigin, vec3 rayDir){
+    vec3 invDir = 1.0 / rayDir;
+    
+    vec3 t1 = (vec3(ubo.allChunksMin) - rayOrigin) * invDir;
+    vec3 t2 = (vec3(ubo.allChunksMax) - rayOrigin) * invDir;
+    
+    vec3 tmin = min(t1, t2);
+    vec3 tmax = max(t1, t2);
+    
+    float entryDist = max(max(tmin.x, tmin.y), tmin.z);
+    float exitDist = min(min(tmax.x, tmax.y), tmax.z);
+    //Check if rayOrigin is inside the AABB
+    if(entryDist < 0.0 && exitDist > 0.0) {
+        return 0.0; 
+    }
+    if (entryDist > exitDist || exitDist < 0.0) {
+        return -1; 
+    }
+    
+    return entryDist+0.0001; 
+}
 RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
     const int MAX_STEPS = 1024; 
     int lastStepAxis = 0;
-    ivec3 voxelPos = ivec3(floor(rayOrigin));
+    float AABBresult = chunkAABBIntersection(rayOrigin, rayDir);
+    if(AABBresult==-1) return RaytraceResult(0u, vec3(0.0), vec3(0.0), vec4(0.0));\
+    vec3 startPos = rayOrigin + rayDir * AABBresult;
+    ivec3 voxelPos = ivec3(floor(startPos));
     ivec3 step = ivec3(sign(rayDir));
     
     vec3 tDelta = abs(1.0 / rayDir);
@@ -163,9 +188,9 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
     vec3 tMax;
     for (int i = 0; i < 3; i++) {
         if (rayDir[i] > 0.0) {
-            tMax[i] = (floor(rayOrigin[i]) + 1.0 - rayOrigin[i]) / rayDir[i];
+            tMax[i] = (floor(startPos[i]) + 1.0 - startPos[i]) / rayDir[i];
         } else if (rayDir[i] < 0.0) {
-            tMax[i] = (floor(rayOrigin[i]) - rayOrigin[i]) / rayDir[i];
+            tMax[i] = (floor(startPos[i]) - startPos[i]) / rayDir[i];
         } else {
             tMax[i] = 1e30;
         }
@@ -174,15 +199,20 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
     for (int step_count = 0; step_count < MAX_STEPS; step_count++) {
         ivec2 chunkPos = ivec2(floor(float(voxelPos.x) / float(ubo.CHUNK_SIZE)), floor(float(voxelPos.z) / float(ubo.CHUNK_SIZE)));
         ivec3 localPos = voxelPos - ivec3(chunkPos.x, 0, chunkPos.y) * int(ubo.CHUNK_SIZE);
-        
+        if(voxelPos.y < ubo.allChunksMin.y || voxelPos.y >= ubo.allChunksMax.y ||
+           voxelPos.x < ubo.allChunksMin.x || voxelPos.x >= ubo.allChunksMax.x ||
+           voxelPos.z < ubo.allChunksMin.z || voxelPos.z >= ubo.allChunksMax.z) {
+            break;
+        }
         int chunkIndex = findChunk(chunkPos);
         
         if (chunkIndex >= 0) {
-            uint voxelValue = getVoxel(uint(chunkIndex), localPos);
+            traverseResult res = getVoxel(chunkIndex, localPos);
+            uint voxelValue = res.voxelValue;
             if (voxelValue != 0u) {
 
                 float tHit = tMax[lastStepAxis] - tDelta[lastStepAxis];
-                vec3 rayHitPos = rayOrigin + rayDir * tHit;
+                vec3 rayHitPos = startPos + rayDir * tHit;
 
                 vec3 normal = vec3(0.0);
                 if (lastStepAxis == 0) normal.x = -float(step.x);
@@ -201,9 +231,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
                 }
             }
         }
-        else{
-            return RaytraceResult(0u, vec3(0.0), vec3(0.0), vec4(0.0));
-        }
+
         
         if (tMax.x < tMax.y) {
             if (tMax.x < tMax.z) {

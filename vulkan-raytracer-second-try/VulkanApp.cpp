@@ -102,7 +102,9 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.proj = camera->getProjectionMatrix(),
 		.cameraPos = camera->position,
 		.CHUNK_SIZE = Chunk::CHUNK_SIZE,
-		.blockDataArray = {}
+		.blockDataArray = {},
+		.allChunksMin = ChunkManager::allChunksMin,
+		.allChunksMax = ChunkManager::allChunksMax,
 	};
 	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
 	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));

@@ -1,5 +1,7 @@
 #include "ChunkManager.h"
 #include <iostream>
+ivec3 ChunkManager::allChunksMin = ivec3(0);
+ivec3 ChunkManager::allChunksMax = ivec3(0);
 ChunkManager::ChunkManager() {
 }
 ChunkManager::~ChunkManager() {
@@ -40,6 +42,8 @@ void ChunkManager::generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint
 			}
 		}
 	}
+	allChunksMin = ivec3((cameraChunkPos.x - renderDistance) * Chunk::CHUNK_SIZE, 0, (cameraChunkPos.y - renderDistance) * Chunk::CHUNK_SIZE);
+	allChunksMax = ivec3((cameraChunkPos.x + renderDistance ) * Chunk::CHUNK_SIZE, Chunk::CHUNK_SIZE, (cameraChunkPos.y + renderDistance) * Chunk::CHUNK_SIZE);
 }
 uint32_t ChunkManager::hashChunkPos(ivec2 pos) {
 	
