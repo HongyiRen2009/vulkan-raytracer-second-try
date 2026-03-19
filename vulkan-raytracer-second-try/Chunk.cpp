@@ -17,7 +17,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-
+#include "libmorton/morton.h"
 using namespace std;
 using namespace glm;
 unsigned int waterLevel = 10;
@@ -403,27 +403,80 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 			}
 		}
 	}
+	//Generate z-curve array for faster tree generation
+	for(int x = 0;x < CHUNK_SIZE;x++){
+		for(int y = 0;y < CHUNK_SIZE;y++){
+			for(int z = 0;z < CHUNK_SIZE;z++){
+				uint64_t mortonIndex = libmorton::morton3D_32_encode(x, y, z);
+				zCurveBlocks[mortonIndex] = blocks[x][y][z];
+			}
+		}
+	}
 	BuildTree(0, 0, 0, CHUNK_SIZE);
 }
+template<int SIZE>
+bool Chunk::isRegionUniformTemplated(int x, int y, int z, unsigned int blockId) {
+	int zIndex = libmorton::morton3D_32_encode(x, y, z);
+	const uint32_t* data = &zCurveBlocks[zIndex];
+	int count = SIZE * SIZE * SIZE;
+
+	__m256i target = _mm256_set1_epi32(blockId);
+
+	__m256i diff_accumulator = _mm256_setzero_si256();
+
+	for (int i = 0; i < count; i += 8) {
+		__m256i current_chunk = _mm256_loadu_si256((const __m256i*)(data + i));
+
+		__m256i diff = _mm256_xor_si256(current_chunk, target);
+
+		diff_accumulator = _mm256_or_si256(diff_accumulator, diff);
+	}
+
+	return _mm256_testz_si256(diff_accumulator, diff_accumulator);
+}
+bool Chunk::isRegionUniform(int x, int y, int z, int size, unsigned int blockId) {
+	if (x<0 || y<0 || z<0 || x + size>CHUNK_SIZE || y + size>CHUNK_SIZE || z + size>CHUNK_SIZE) {
+		return false;
+	}
+	int zIndex = libmorton::morton3D_32_encode(x, y, z);
+	switch (size) {
+	case 4:  return isRegionUniformTemplated<4>(x, y, z, blockId);
+	case 16: return isRegionUniformTemplated<16>(x, y, z, blockId);
+	case 64: return isRegionUniformTemplated<64>(x, y, z, blockId);
+	case 256: return isRegionUniformTemplated<256>(x, y, z, blockId);
+	case 1024: return isRegionUniformTemplated<1024>(x, y, z, blockId);
+	default:
+		for (int i = 0;i < size * size * size;i++) {
+			if (zCurveBlocks[zIndex] != blockId) {
+				return false;
+			}
+		}
+	}
+}
+
 TempNode Chunk::CreateNode(int x, int y, int z, int size) {
 	TempNode node = {
 		.mask = 0,
 		.blockId = 0,
-		.childIndices = {}
+		.childIndices = {},
+		.childCount = 0
 	};
 
 	if (size <= 1) {
 		node.blockId = blocks[x][y][z];
 		node.mask = (node.blockId == 0) ? 0ull : 1ull;
+		return node;
+	}
+
+	const unsigned int baseBlock = blocks[x][y][z];
+	if (isRegionUniform(x, y, z, size, baseBlock)) {
+		node.blockId = baseBlock;
+		node.mask = (baseBlock == 0u) ? 0ull : 0xFFFFFFFFFFFFFFFFull;
 		node.childCount = 0;
 		return node;
 	}
 
-	TempNode childNodes[64];
 	int childCount = 0;
-	bool isBlockIdInitialized = false;
-	bool hasAnyEmptyChild = false;
-
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++) {
 			for (int k = 0; k < 4; k++) {
@@ -434,40 +487,18 @@ TempNode Chunk::CreateNode(int x, int y, int z, int size) {
 					size / 4
 				);
 
-				if (childNode.mask != 0) {
-					node.mask |= (1ull << (i * 16 + j * 4 + k));
-
-					if (!isBlockIdInitialized) {
-						node.blockId = childNode.blockId;
-						isBlockIdInitialized = true;
-					}
-					else if (node.blockId != childNode.blockId) {
-						node.blockId = 0;
-					}
-
-					childNodes[childCount++] = childNode;
+				if (childNode.mask == 0) {
+					continue;
 				}
-				else {
-					hasAnyEmptyChild = true;
-				}
+
+				childNodePool.push_back(childNode);
+				node.childIndices[childCount++] = (uint32_t)(childNodePool.size() - 1);
+				node.mask |= (1ull << (i * 16 + j * 4 + k));
 			}
 		}
 	}
 
-	node.childCount = static_cast<uint16_t>(childCount);
-
-	// Critical: cannot collapse to solid if any child is empty
-	if (hasAnyEmptyChild) {
-		node.blockId = 0;
-	}
-
-	if (node.blockId == 0 && node.mask != 0) {
-		for (int i = 0; i < childCount; i++) {
-			node.childIndices[i] = (uint32_t)childNodePool.size();
-			childNodePool.push_back(childNodes[i]);
-		}
-	}
-
+	node.childCount = (uint16_t)childCount;
 	return node;
 }
 
@@ -477,13 +508,13 @@ void Chunk::BuildTree(int x, int y, int z, int size) {
 	childNodePool.reserve(50000);
 	nodePool.reserve(50000);
 	TempNode rootNode = CreateNode(x, y, z, size);
-	queue<pair<TempNode*,uint32_t>> nodeQueue;
+	queue<pair<TempNode*, uint32_t>> nodeQueue;
 	nodeQueue.push({ &rootNode, UINT32_MAX });
 	while (!nodeQueue.empty()) {
 		auto [currentNode, parentIdx] = nodeQueue.front();
 		nodeQueue.pop();
 		uint32_t currentIdx = (uint32_t)nodePool.size();
-		if(parentIdx!=UINT32_MAX){
+		if (parentIdx != UINT32_MAX) {
 			nodePool[parentIdx].firstChildIndex = currentIdx;
 		}
 		Node node = {
@@ -494,11 +525,11 @@ void Chunk::BuildTree(int x, int y, int z, int size) {
 		nodePool.push_back(node);
 		if (currentNode->mask != 0 && currentNode->blockId == 0) {
 			for (int i = 0;i < currentNode->childCount;i++) {
-				nodeQueue.push({ &childNodePool[currentNode->childIndices[i]], i==0 ? (uint32_t)currentIdx:UINT32_MAX });
+				nodeQueue.push({ &childNodePool[currentNode->childIndices[i]], i == 0 ? (uint32_t)currentIdx : UINT32_MAX });
 			}
 		}
 	}
-	cout << "Finished building tree with " << nodePool.size() << " nodes."<< endl;
+	cout << "Finished building tree with " << nodePool.size() << " nodes." << endl;
 }
 Chunk::~Chunk() {
 }
