@@ -43,7 +43,11 @@ void ChunkManager::generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint
 		}
 	}
 	allChunksMin = ivec3((cameraChunkPos.x - renderDistance) * Chunk::CHUNK_SIZE, 0, (cameraChunkPos.y - renderDistance) * Chunk::CHUNK_SIZE);
-	allChunksMax = ivec3((cameraChunkPos.x + renderDistance ) * Chunk::CHUNK_SIZE, Chunk::CHUNK_SIZE, (cameraChunkPos.y + renderDistance) * Chunk::CHUNK_SIZE);
+	allChunksMax = ivec3(
+		(cameraChunkPos.x + renderDistance + 1) * Chunk::CHUNK_SIZE,
+		Chunk::CHUNK_SIZE,
+		(cameraChunkPos.y + renderDistance + 1) * Chunk::CHUNK_SIZE
+	);
 }
 uint32_t ChunkManager::hashChunkPos(ivec2 pos) {
 	

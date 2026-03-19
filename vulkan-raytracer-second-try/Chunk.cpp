@@ -342,7 +342,6 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 
 			// Fill blocks: solid below terrain height, air above
 			for (unsigned int j = 0; j < CHUNK_SIZE; j++) {
-
 				if (blocks[i][j][k] != 0) {
 					continue;
 				}
