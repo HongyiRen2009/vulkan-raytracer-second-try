@@ -6,6 +6,7 @@
 #include "VulkanUtils.h"
 using namespace my_vulkan;
 using namespace std;
+bool VulkanPhysicalDevices::useIntegratedGPU = false;
 VulkanPhysicalDevices::VulkanPhysicalDevices(){}
 VulkanPhysicalDevices::~VulkanPhysicalDevices() {}
 void VulkanPhysicalDevices::init(VkInstance instance, VkSurfaceKHR surface) {
@@ -116,6 +117,9 @@ uint32_t VulkanPhysicalDevices::SelectPhysicalDevice(VkQueueFlags RequiredQueueT
         const auto& device = physicalDevices[i];
         for (uint32_t j = 0; j < device.queueFamilyProperties.size(); j++) {
             const auto& queueFamily = device.queueFamilyProperties[j];
+			if (physicalDevices[i].deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                continue;
+            }
             if ((queueFamily.queueFlags & RequiredQueueType) == RequiredQueueType) {
                 if (!SupportsPresenting || device.queueFamilySupportsPresenting[j]) {
                     selectedPhysicalDeviceIndex = i;

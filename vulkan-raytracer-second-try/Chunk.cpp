@@ -334,6 +334,7 @@ void Chunk::generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>
 	}
 }
 void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace) {
+	float startTime = glfwGetTime();
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
 
@@ -412,7 +413,10 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 			}
 		}
 	}
+	cout << "Finished generating terrain in " << glfwGetTime() - startTime << " seconds." << endl;
+	startTime = glfwGetTime();
 	BuildTree(0, 0, 0, CHUNK_SIZE);
+	cout << "Finished building tree in " << glfwGetTime() - startTime << " seconds. Size: " <<nodePool.size() << " nodes." << endl;
 }
 template<int SIZE>
 bool Chunk::isRegionUniformTemplated(int x, int y, int z, unsigned int blockId) {
@@ -529,7 +533,6 @@ void Chunk::BuildTree(int x, int y, int z, int size) {
 			}
 		}
 	}
-	cout << "Finished building tree with " << nodePool.size() << " nodes." << endl;
 }
 Chunk::~Chunk() {
 }

@@ -197,7 +197,6 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 			frameData.chunkSSBO[frameIdx].AddData(logicalDevice, &data, sizeof(ChunkData), slotIndex * sizeof(ChunkData));
 			if (!chunk->nodePool.empty()) {
 				size_t nodePoolSizeBytes = chunk->nodePool.size() * sizeof(Node);
-				// CRITICAL FIX: Calculate offset in bytes from gpuSlot reservation
 				VkDeviceSize offsetBytes = static_cast<VkDeviceSize>(chunk->gpuSlot) * bytesPerChunkSlot;
 				frameData.voxelSSBO[frameIdx].AddData(
 					logicalDevice,
@@ -205,12 +204,6 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 					nodePoolSizeBytes,
 					offsetBytes
 				);
-
-				// Debug: Verify the offset calculation
-				cout << "Chunk at " << chunk->chunkPosition.x << "," << chunk->chunkPosition.y
-					<< " - gpuSlot: " << chunk->gpuSlot
-					<< ", offset bytes: " << offsetBytes
-					<< ", nodes: " << chunk->nodePool.size() << endl;
 			}
 		}
 		chunk->isDirty = false;

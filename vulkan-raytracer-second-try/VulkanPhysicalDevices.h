@@ -18,6 +18,7 @@ namespace my_vulkan
 	class VulkanPhysicalDevices
 	{
 		public:
+			static bool useIntegratedGPU;
 			VulkanPhysicalDevices();
 			~VulkanPhysicalDevices();
 			void init(VkInstance instance, VkSurfaceKHR surface);
