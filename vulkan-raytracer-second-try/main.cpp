@@ -12,8 +12,8 @@ VulkanApp vulkanApp;
 Camera* camera;
 ChunkManager chunkManager;
 unsigned int seed = 42;
-ivec2 lastCameraChunkPos = ivec2(0, 0);
-vec2 lastCameraLoadPos = vec2(0, 0);
+ivec2 lastCameraChunkPos = ivec2(0);
+vec2 lastCameraLoadPos = vec2(0);
 
 // FPS Counter variables
 double lastFrameTime = 0.0;
@@ -71,10 +71,10 @@ void updateFPSCounter() {
 }
 void checkForChunkUpdates() {
 	ivec2 cameraChunkPos = ivec2(floor(camera->position.x / Chunk::CHUNK_SIZE), floor(camera->position.z / Chunk::CHUNK_SIZE));
-	vec2 cameraLoadPos = vec2(camera->position.x, camera->position.z);
+	vec2 cameraLoadPos = camera->position;
 	vector<uint32_t> invalidChunks;
 	if (cameraChunkPos != lastCameraChunkPos && distance(cameraLoadPos, lastCameraLoadPos) > Chunk::CHUNK_SIZE * 1.5) {
-		chunkManager.generateChunksAroundCamera(cameraChunkPos, invalidChunks);
+		chunkManager.generateChunksAroundCamera(ivec3(cameraChunkPos.x,0,cameraChunkPos.y), invalidChunks);
 		vulkanApp.InvalidateChunksInGPU(invalidChunks);
 		vulkanApp.UpdateChunkSSBO(&chunkManager);
 		lastCameraChunkPos = cameraChunkPos;
@@ -90,7 +90,7 @@ int main() {
 	Chunk::populateBlockDataArray();
 	chunkManager.init(seed);
 	vector<uint32_t> _;
-	chunkManager.generateChunksAroundCamera(ivec2(0, 0), _);
+	chunkManager.generateChunksAroundCamera(ivec3(0), _);
 	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	if (!glfwVulkanSupported()) {
 		return -1;

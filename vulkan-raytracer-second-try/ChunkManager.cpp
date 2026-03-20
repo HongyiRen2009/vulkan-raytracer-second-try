@@ -17,44 +17,56 @@ unsigned int ChunkManager::popFreeSlot() {
 	}
 	return currentChunkIndex++;
 }
-void ChunkManager::generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint32_t>& invalidChunkIndices) {
-	for (int i = 0;i < chunks.size();i++) {
-		ivec2 chunkPos = chunks[i]->chunkPosition;
-		if (abs(chunkPos.x - cameraChunkPos.x) > renderDistance || abs(chunkPos.y - cameraChunkPos.y) > renderDistance) {
+void ChunkManager::generateChunksAroundCamera(ivec3 cameraChunkPos, vector<uint32_t>& invalidChunkIndices) {
+	for (int i = 0; i < chunks.size(); i++) {
+		ivec3 chunkPos = chunks[i]->chunkPosition;
+		int dx = abs(chunkPos.x - cameraChunkPos.x);
+		int dz = abs(chunkPos.z - cameraChunkPos.z);
+
+		if (dx > renderDistance || dz > renderDistance) {
 			invalidChunkIndices.push_back(chunks[i]->hashTableSlot);
 			unloadChunk(i);
 			i--;
 		}
 	}
-	
+
+	// Load chunks around camera
 	for (int x = -renderDistance; x <= renderDistance; x++) {
 		for (int z = -renderDistance; z <= renderDistance; z++) {
-			ivec2 chunkPos = cameraChunkPos + ivec2(x, z);
-			bool chunkExists = false;
-			for (const auto& chunk : chunks) {
-				if (chunk->chunkPosition == chunkPos) {
-					chunkExists = true;
-					break;
+			for (int y = 0; y <= renderDistanceHeight; y++) {
+				ivec3 chunkPos = cameraChunkPos + ivec3(x, y, z);
+				bool chunkExists = false;
+				for (const auto& chunk : chunks) {
+					if (chunk->chunkPosition == chunkPos) {
+						chunkExists = true;
+						break;
+					}
 				}
-			}
-			if (!chunkExists) {
-				loadChunk(chunkPos);
+				if (!chunkExists) {
+					loadChunk(chunkPos);
+				}
 			}
 		}
 	}
-	allChunksMin = ivec3((cameraChunkPos.x - renderDistance) * Chunk::CHUNK_SIZE, 0, (cameraChunkPos.y - renderDistance) * Chunk::CHUNK_SIZE);
+
+	allChunksMin = ivec3(
+		(cameraChunkPos.x - renderDistance) * Chunk::CHUNK_SIZE,
+		(cameraChunkPos.y - renderDistanceHeight) * Chunk::CHUNK_SIZE,
+		(cameraChunkPos.z - renderDistance) * Chunk::CHUNK_SIZE
+	);
 	allChunksMax = ivec3(
 		(cameraChunkPos.x + renderDistance + 1) * Chunk::CHUNK_SIZE,
-		Chunk::CHUNK_SIZE,
-		(cameraChunkPos.y + renderDistance + 1) * Chunk::CHUNK_SIZE
+		(cameraChunkPos.y + renderDistanceHeight + 1) * Chunk::CHUNK_SIZE,
+		(cameraChunkPos.z + renderDistance + 1) * Chunk::CHUNK_SIZE
 	);
 }
-uint32_t ChunkManager::hashChunkPos(ivec2 pos) {
-	
+uint32_t ChunkManager::hashChunkPos(ivec3 pos) {
+
 	const uint p1 = 73856093u;
 	const uint p2 = 19349663u;
+	const uint p3 = 83492791u;
 
-	uint hash = (uint(pos.x) * p1) ^ (uint(pos.y) * p2);
+	uint hash = (uint(pos.x) * p1) ^ (uint(pos.y) * p2) ^ (uint(pos.z) * p3);
 
 	hash ^= hash >> 16;
 	hash *= 0x85ebca6bu;
@@ -62,9 +74,9 @@ uint32_t ChunkManager::hashChunkPos(ivec2 pos) {
 	hash *= 0xc2b2ae35u;
 	hash ^= hash >> 16;
 	return hash % 10000u;
-	
+
 }
-void ChunkManager::loadChunk(ivec2 spawnPosition) {
+void ChunkManager::loadChunk(ivec3 spawnPosition) {
 	unsigned int slot = popFreeSlot();
 	auto chunk = std::make_unique<Chunk>(seed, spawnPosition);
 	chunk->gpuSlot = slot;
@@ -88,15 +100,15 @@ void ChunkManager::loadChunk(ivec2 spawnPosition) {
 		chunks.push_back(std::move(chunk));
 	}
 	else {
-		std::cout << "ERROR: No free hash slots available for chunk at " << spawnPosition.x << ", " << spawnPosition.y << std::endl;
+		std::cout << "ERROR: No free hash slots available for chunk at " << spawnPosition.x << ", " << spawnPosition.y << ", " << spawnPosition.z << std::endl;
 		freeChunkSlots.push(slot);  // Return the slot since we can't use the chunk
 	}
 }
 void ChunkManager::unloadChunk(int index) {
-	
+
 	freeChunkSlots.push(chunks[index]->gpuSlot);
 	hashedChunkPositions.erase(chunks[index]->hashTableSlot);
-	chunks.erase(chunks.begin()+index);
+	chunks.erase(chunks.begin() + index);
 
-	
+
 }

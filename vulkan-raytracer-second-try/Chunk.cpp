@@ -20,7 +20,7 @@
 #include "libmorton/morton.h"
 using namespace std;
 using namespace glm;
-unsigned int waterLevel = 10;
+unsigned int waterLevel = 60;
 unsigned int mountainLevel = 80;
 unsigned int snowLevel = 100;
 // --- PerlinNoise class (can be moved to its own file if desired) ---
@@ -211,7 +211,7 @@ ChunkTypes::blockData Chunk::blockDataArray[256];
 // --- Chunk methods ---
 int placed = 0;
 int missing = 0;
-Chunk::Chunk(unsigned int seed, ivec2 spawnPosition)
+Chunk::Chunk(unsigned int seed, ivec3 spawnPosition)
 	: perlinNoise(new PerlinNoise(seed))
 {
 	chunkPosition = spawnPosition;
@@ -244,8 +244,8 @@ void Chunk::populateBlockDataArray() {
 	}
 }
 unsigned int  Chunk::generateTerrainHeight(int x, int z) {
-	int maxheight = 50;
-	int minheight = 10;
+	int maxheight = 200;
+	int minheight = 20;
 	// Generate height using 2D perlin noise on the horizontal plane
 	float noiseValue = perlinNoise->perlinNoise(x, z, 8, 0.5, 0.005);
 
@@ -322,7 +322,7 @@ void Chunk::generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>
 				if (x + j < 0 || x + j >= CHUNK_SIZE || z + k < 0 || z + k >= CHUNK_SIZE) {
 					{
 						unloadedChunkBlockstoPlace->push_back({
-							ivec3(x + j, y + i, z + k) + ivec3(chunkPosition.x * CHUNK_SIZE, 0, chunkPosition.y * CHUNK_SIZE),
+							ivec3(x + j, y + i, z + k) + ivec3(chunkPosition.x * CHUNK_SIZE, chunkPosition.y*CHUNK_SIZE, chunkPosition.z * CHUNK_SIZE),
 							5
 							});
 					}
@@ -338,16 +338,17 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
 
-			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.y * CHUNK_SIZE);
+			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.z * CHUNK_SIZE);
 			unsigned int terrainHeight = generateTerrainHeight(globalPosition.x, globalPosition.y);
 
 			// Fill blocks: solid below terrain height, air above
 			for (unsigned int j = 0; j < CHUNK_SIZE; j++) {
+				unsigned int globalY = j + chunkPosition.y * CHUNK_SIZE;
 				if (blocks[i][j][k] != 0) {
 					continue;
 				}
-				if (j > terrainHeight) {
-					if (j <= waterLevel) {
+				if (globalY > terrainHeight) {
+					if (globalY <= waterLevel) {
 						blocks[i][j][k] = 6;
 						continue;
 					}
@@ -369,15 +370,15 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 					continue;
 
 				}
-				if (j == terrainHeight) {
-					if (j >= waterLevel) {
+				if (globalY == terrainHeight) {
+					if (globalY >= waterLevel) {
 						blocks[i][j][k] = 1;
 						continue;
 					}
 					blocks[i][j][k] = 8;
 					continue;
 				}
-				if (j > terrainHeight - 6) {
+				if (globalY > terrainHeight - 6) {
 					if (terrainHeight >= waterLevel) {
 						blocks[i][j][k] = 2;
 						continue;
@@ -393,14 +394,17 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 	}
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
-			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.y * CHUNK_SIZE);
+			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.z * CHUNK_SIZE);
 			unsigned int terrainHeight = generateTerrainHeight(globalPosition.x, globalPosition.y);
-			unsigned int waterLevel = 10;
-			if (terrainHeight > CHUNK_SIZE - 1) {
+
+			int localTerrainHeight = (int)terrainHeight - (int)(chunkPosition.y * CHUNK_SIZE);
+
+			if (localTerrainHeight < 0 || localTerrainHeight >= CHUNK_SIZE) {
 				continue;
 			}
-			if (terrainHeight >= waterLevel && perlinNoise->seededRandom(globalPosition.x, globalPosition.y, 2) && blocks[i][terrainHeight][k] == 1) {
-				generateTree(i, terrainHeight, k, unloadedChunkBlockstoPlace);
+
+			if (terrainHeight >= waterLevel && perlinNoise->seededRandom(globalPosition.x, globalPosition.y, 2) && blocks[i][localTerrainHeight][k] == 1) {
+				generateTree(i, localTerrainHeight, k, unloadedChunkBlockstoPlace);
 			}
 		}
 	}

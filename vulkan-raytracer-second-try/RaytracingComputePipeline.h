@@ -18,7 +18,7 @@ namespace my_vulkan
 		alignas(16) glm::ivec3 allChunksMax;
 	};
 	struct alignas(16) ChunkData {
-		glm::vec2 chunkPos;
+		glm::vec3 chunkPos;
 		uint32_t gpuSlot;
 		uint32_t valid;
 	};

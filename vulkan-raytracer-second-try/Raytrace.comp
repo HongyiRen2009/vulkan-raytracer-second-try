@@ -10,7 +10,7 @@ struct traverseResult{
     uint depth;
 };
 struct ChunkData{
-    vec2 chunkPos;
+    vec3 chunkPos;
     uint gpuSlot;
     uint valid;
 };
@@ -58,11 +58,12 @@ struct RaytraceResult {
     vec3 rayPos;
     vec4 color;
 };
-uint hashChunkPos(ivec2 pos) {
+uint hashChunkPos(ivec3 pos) {
     const uint p1 = 73856093u;
     const uint p2 = 19349663u;
+    const uint p3 = 83492791u;
     
-    uint hash = (uint(pos.x) * p1) ^ (uint(pos.y) * p2);
+    uint hash = (uint(pos.x) * p1) ^ (uint(pos.y) * p2) ^ (uint(pos.z) * p3);
     
     hash ^= hash >> 16;
     hash *= 0x85ebca6bu;
@@ -81,14 +82,14 @@ uint normalToFaceIndex(vec3 normal) {
     if(normal.y<-0.5) return 5u;
     return 0u; // default case, should not happen for axis-aligned normals
 }
-int findChunk(ivec2 chunkPos) {
+int findChunk(ivec3 chunkPos) {
     uint hash = hashChunkPos(chunkPos);
     
     for (uint i = 0; i < 100u; i++) {
         uint index = (hash + i) % 10000u;
         
 
-        if (chunkSSBO.chunkData[index].valid==1u&&ivec2(chunkSSBO.chunkData[index].chunkPos) == chunkPos) {
+        if (chunkSSBO.chunkData[index].valid==1u&&ivec3(chunkSSBO.chunkData[index].chunkPos) == chunkPos) {
             return int(index);
         }
     }
@@ -283,11 +284,12 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
 vec3 sampleP = rayOrigin + rayDir * (tCurrent + 1e-4);
 ivec3 samplePos = ivec3(floor(sampleP));
 
-ivec2 chunkPos = ivec2(
+ivec3 chunkPos = ivec3(
     floor(float(samplePos.x) / float(ubo.CHUNK_SIZE)),
+    floor(float(samplePos.y) / float(ubo.CHUNK_SIZE)),
     floor(float(samplePos.z) / float(ubo.CHUNK_SIZE))
 );
-ivec3 localPos = samplePos - ivec3(chunkPos.x, 0, chunkPos.y) * int(ubo.CHUNK_SIZE);
+ivec3 localPos = samplePos - chunkPos * int(ubo.CHUNK_SIZE);
 
 int chunkIndex = findChunk(chunkPos);
 if (chunkIndex < 0) break;

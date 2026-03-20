@@ -22,7 +22,7 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
 		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,&blockTextureArray);
 	}
-	ChunkData emptySlot = { .chunkPos = glm::vec2(0.0f), .gpuSlot = 0, .valid = 0 };
+	ChunkData emptySlot = { .chunkPos = glm::vec3(0.0f), .gpuSlot = 0, .valid = 0 };
 	for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
 		for (uint32_t i = 0; i < 10000; i++) {
 			frameData.chunkSSBO[frameIdx].AddData(vulkanCore.GetLogicalDevice(), &emptySlot, sizeof(ChunkData), i * sizeof(ChunkData));
@@ -188,7 +188,7 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 		uint32_t slotIndex = chunk->hashTableSlot;
 
 		ChunkData data = {
-			.chunkPos = glm::vec2(chunk->chunkPosition),
+			.chunkPos = glm::vec3(chunk->chunkPosition),
 			.gpuSlot = chunk->gpuSlot,
 			.valid = 1
 		};
@@ -212,7 +212,7 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 void VulkanApp::InvalidateChunksInGPU(vector<uint32_t> slotIndices) {
 	for (int i = 0;i < slotIndices.size();i++) {
 		ChunkData data = {
-			.chunkPos = glm::vec2(0.0f),
+			.chunkPos = glm::vec3(0.0f),
 			.gpuSlot = 0,
 			.valid = 0
 		};

@@ -5,19 +5,20 @@
 #include <set>
 using namespace std;
 class ChunkManager {
-	public:
-		ChunkManager();
-		~ChunkManager();
-		void init(unsigned int seed);
-		const vector<unique_ptr<Chunk>>& GetChunks() {
-			return chunks;
-		}
-		void generateChunksAroundCamera( ivec2 cameraChunkPos, vector<uint32_t>& invalidChunkIndices);
-		uint hashChunkPos(ivec2 pos); 
-		static ivec3 allChunksMin;
-		static ivec3 allChunksMax;
-	private:
-		int renderDistance = 1;
+public:
+	ChunkManager();
+	~ChunkManager();
+	void init(unsigned int seed);
+	const vector<unique_ptr<Chunk>>& GetChunks() {
+		return chunks;
+	}
+	void generateChunksAroundCamera(ivec3 cameraChunkPos, vector<uint32_t>& invalidChunkIndices);
+	uint hashChunkPos(ivec3 pos);
+	static ivec3 allChunksMin;
+	static ivec3 allChunksMax;
+private:
+	int renderDistance = 8;
+	int renderDistanceHeight = 1;
 	unsigned int seed;
 	vector<unique_ptr<Chunk>> chunks;
 
@@ -26,8 +27,12 @@ class ChunkManager {
 	unsigned int currentChunkIndex = 0;
 	unsigned int popFreeSlot();
 	void unloadChunk(int index);
-	void loadChunk( ivec2 spawnPosition);
+	void loadChunk(ivec3 spawnPosition);
 	vector <tuple<ivec3, unsigned int>> unloadedChunkBlockstoPlace;
 
-
+public:
+	int getRenderDistance() const { return renderDistance; }
+	int getRenderDistanceHeight() const { return renderDistanceHeight; }
+	void setRenderDistance(int distance) { renderDistance = distance; }
+	void setRenderDistanceHeight(int height) { renderDistanceHeight = height; }
 };

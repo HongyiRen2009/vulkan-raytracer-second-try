@@ -36,8 +36,8 @@ public:
     static constexpr unsigned int CHUNK_SIZE = 64;
 	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * sizeof(unsigned int); //Currently oversized
     unsigned int hashTableSlot;
-    ivec2 chunkPosition;
-    Chunk(unsigned int seed, ivec2 spawnPosition);
+    ivec3 chunkPosition;
+    Chunk(unsigned int seed, ivec3 spawnPosition);
     void generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace);
     ~Chunk();
     bool isDirty = false;
