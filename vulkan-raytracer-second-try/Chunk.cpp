@@ -17,7 +17,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include "libmorton/morton.h"
+#include "include/libmorton/morton.h"
 using namespace std;
 using namespace glm;
 unsigned int waterLevel = 60;
@@ -290,7 +290,7 @@ unsigned int Chunk::getBlock(int x, int y, int z) {
 	}
 	return blocks[x][y][z];
 }
-void Chunk::generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace) {
+void Chunk::generateTree(int x, int y, int z) {
 	int layerSize = 2;
 
 	if (!generateTreeValid(x, y, z, layerSize)) {
@@ -320,12 +320,12 @@ void Chunk::generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>
 					continue;
 				}
 				if (x + j < 0 || x + j >= CHUNK_SIZE || z + k < 0 || z + k >= CHUNK_SIZE) {
-					{
-						unloadedChunkBlockstoPlace->push_back({
+					
+						unloadedChunkBlockstoPlace.push_back({
 							ivec3(x + j, y + i, z + k) + ivec3(chunkPosition.x * CHUNK_SIZE, chunkPosition.y*CHUNK_SIZE, chunkPosition.z * CHUNK_SIZE),
 							5
 							});
-					}
+				
 					continue;
 				}
 				setBlock(x + j, y + i, z + k, 5);
@@ -333,7 +333,7 @@ void Chunk::generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>
 		}
 	}
 }
-void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace) {
+void Chunk::generateTerrain() {
 	float startTime = glfwGetTime();
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
@@ -404,7 +404,7 @@ void Chunk::generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlo
 			}
 
 			if (terrainHeight >= waterLevel && perlinNoise->seededRandom(globalPosition.x, globalPosition.y, 2) && blocks[i][localTerrainHeight][k] == 1) {
-				generateTree(i, localTerrainHeight, k, unloadedChunkBlockstoPlace);
+				generateTree(i, localTerrainHeight, k);
 			}
 		}
 	}

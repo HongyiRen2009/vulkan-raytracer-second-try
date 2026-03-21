@@ -1,10 +1,21 @@
 #include "ChunkManager.h"
 #include <iostream>
+#include <string>
 ivec3 ChunkManager::allChunksMin = ivec3(0);
 ivec3 ChunkManager::allChunksMax = ivec3(0);
 ChunkManager::ChunkManager() {
+	chunkGenerationThread = std::thread(&ChunkManager::chunkGenerationWorker, this);
 }
+
 ChunkManager::~ChunkManager() {
+	{
+		std::unique_lock<std::mutex> lock(chunkGenMutex);
+		shouldShutdown = true;
+	}
+	chunkGenCV.notify_one();
+	if (chunkGenerationThread.joinable()) {
+		chunkGenerationThread.join();
+	}
 }
 void ChunkManager::init(unsigned int seed) {
 	this->seed = seed;
@@ -17,38 +28,35 @@ unsigned int ChunkManager::popFreeSlot() {
 	}
 	return currentChunkIndex++;
 }
-void ChunkManager::generateChunksAroundCamera(ivec3 cameraChunkPos, vector<uint32_t>& invalidChunkIndices) {
+string getChunkSetString(ivec3 chunkPos) {
+	return to_string(chunkPos.x) + "," + to_string(chunkPos.y) + "," + to_string(chunkPos.z);
+}
+void ChunkManager::generateChunksAroundCamera(ivec3 cameraChunkPos) {
 	for (int i = 0; i < chunks.size(); i++) {
 		ivec3 chunkPos = chunks[i]->chunkPosition;
 		int dx = abs(chunkPos.x - cameraChunkPos.x);
 		int dz = abs(chunkPos.z - cameraChunkPos.z);
 
 		if (dx > renderDistance || dz > renderDistance) {
-			invalidChunkIndices.push_back(chunks[i]->hashTableSlot);
+			invalidChunks.push_back(chunks[i]->hashTableSlot);
 			unloadChunk(i);
+			loadedChunkPositions.erase(getChunkSetString(chunkPos));
 			i--;
 		}
 	}
 
 	// Load chunks around camera
+	vector<ivec3> newChunkPositions;
 	for (int x = -renderDistance; x <= renderDistance; x++) {
 		for (int z = -renderDistance; z <= renderDistance; z++) {
 			for (int y = 0; y <= renderDistanceHeight; y++) {
 				ivec3 chunkPos = cameraChunkPos + ivec3(x, y, z);
-				bool chunkExists = false;
-				for (const auto& chunk : chunks) {
-					if (chunk->chunkPosition == chunkPos) {
-						chunkExists = true;
-						break;
-					}
-				}
-				if (!chunkExists) {
-					loadChunk(chunkPos);
+				if (loadedChunkPositions.find(getChunkSetString(chunkPos)) == loadedChunkPositions.end()) {
+					newChunkPositions.push_back(chunkPos);
 				}
 			}
 		}
 	}
-
 	allChunksMin = ivec3(
 		(cameraChunkPos.x - renderDistance) * Chunk::CHUNK_SIZE,
 		(cameraChunkPos.y - renderDistanceHeight) * Chunk::CHUNK_SIZE,
@@ -59,6 +67,7 @@ void ChunkManager::generateChunksAroundCamera(ivec3 cameraChunkPos, vector<uint3
 		(cameraChunkPos.y + renderDistanceHeight + 1) * Chunk::CHUNK_SIZE,
 		(cameraChunkPos.z + renderDistance + 1) * Chunk::CHUNK_SIZE
 	);
+	loadChunks(newChunkPositions);
 }
 uint32_t ChunkManager::hashChunkPos(ivec3 pos) {
 
@@ -76,32 +85,83 @@ uint32_t ChunkManager::hashChunkPos(ivec3 pos) {
 	return hash % 10000u;
 
 }
-void ChunkManager::loadChunk(ivec3 spawnPosition) {
-	unsigned int slot = popFreeSlot();
-	auto chunk = std::make_unique<Chunk>(seed, spawnPosition);
-	chunk->gpuSlot = slot;
-	chunk->generateTerrain(&unloadedChunkBlockstoPlace);
 
-	uint32_t hash = hashChunkPos(spawnPosition);
-	uint32_t foundSlot = UINT32_MAX;
+void ChunkManager::onChunkGenerationComplete() {
+	pendingChunkGenerations--;
+}
+void ChunkManager::loadChunks(vector<ivec3> spawnPositions) {
+	for (int i = 0;i < spawnPositions.size();i++) {
+		unsigned int slot = popFreeSlot();
+		auto chunk = std::make_unique<Chunk>(seed, spawnPositions[i]);
+		chunk->gpuSlot = slot;
+		uint32_t hash = hashChunkPos(spawnPositions[i]);
+		uint32_t foundSlot = UINT32_MAX;
+		loadedChunkPositions.insert(getChunkSetString(spawnPositions[i]));
+		for (int j = 0; j < 100; j++) {
+			uint32_t index = (hash + j) % 10000;
+			if (hashedChunkPositions.find(index) == hashedChunkPositions.end()) {
+				chunk->hashTableSlot = index;
+				hashedChunkPositions.insert(index);
+				foundSlot = index;
+				break;
+			}
+		}
 
-	for (int i = 0; i < 100; i++) {
-		uint32_t index = (hash + i) % 10000;
-		if (hashedChunkPositions.find(index) == hashedChunkPositions.end()) {
-			chunk->hashTableSlot = index;
-			hashedChunkPositions.insert(index);
-			foundSlot = index;
-			break;
+		if (foundSlot != UINT32_MAX) {
+			chunk->isDirty = true;
+			Chunk* chunkPtr = chunk.get();
+			chunks.push_back(std::move(chunk));
+			pendingChunkGenerations++;
+			threadPool.enqueue([this, chunkPtr]() {
+				chunkPtr->generateTerrain();
+				onChunkGenerationComplete();
+				});
+
+		}
+		else {
+			std::cout << "ERROR: No free hash slots available for chunk at " << spawnPositions[i].x << ", " << spawnPositions[i].y << ", " << spawnPositions[i].z << std::endl;
+			freeChunkSlots.push(slot);  // Return the slot since we can't use the chunk
 		}
 	}
+}
+void ChunkManager::requestChunkGeneration(ivec3 cameraChunkPos, bool blocking) {
+	isFinishedGeneratingChunks = false;
+	isGeneratingChunks = true;
+	{
+		std::unique_lock<std::mutex> lock(chunkGenMutex);
+		chunkGenerationQueue.push(cameraChunkPos);
 
-	if (foundSlot != UINT32_MAX) {
-		chunk->isDirty = true;
-		chunks.push_back(std::move(chunk));
 	}
-	else {
-		std::cout << "ERROR: No free hash slots available for chunk at " << spawnPosition.x << ", " << spawnPosition.y << ", " << spawnPosition.z << std::endl;
-		freeChunkSlots.push(slot);  // Return the slot since we can't use the chunk
+	chunkGenCV.notify_one();
+
+	if (blocking) {
+		std::unique_lock<std::mutex> lock(chunkGenMutex);
+		chunkGenCV.wait(lock, [this]() { return isFinishedGeneratingChunks; });
+	}
+}
+void ChunkManager::chunkGenerationWorker() {
+	while (true) {
+		std::unique_lock<std::mutex> lock(chunkGenMutex);
+		chunkGenCV.wait(lock, [this]() { return !chunkGenerationQueue.empty() || shouldShutdown; });
+
+		if (shouldShutdown && chunkGenerationQueue.empty()) {
+			break;
+		}
+
+		if (!chunkGenerationQueue.empty()) {
+			ivec3 cameraChunkPos = chunkGenerationQueue.front();
+			chunkGenerationQueue.pop();
+			lock.unlock();
+
+			generateChunksAroundCamera(cameraChunkPos);
+			while (pendingChunkGenerations.load() > 0) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			lock.lock();
+			isFinishedGeneratingChunks = true;
+			
+			chunkGenCV.notify_all();
+		}
 	}
 }
 void ChunkManager::unloadChunk(int index) {

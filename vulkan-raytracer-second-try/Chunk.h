@@ -37,8 +37,9 @@ public:
 	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * sizeof(unsigned int); //Currently oversized
     unsigned int hashTableSlot;
     ivec3 chunkPosition;
+	vector<tuple<ivec3, unsigned int>> unloadedChunkBlockstoPlace;
     Chunk(unsigned int seed, ivec3 spawnPosition);
-    void generateTerrain(vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace);
+    void generateTerrain();
     ~Chunk();
     bool isDirty = false;
     unsigned int gpuSlot;
@@ -53,7 +54,7 @@ public:
 private:
     unsigned int generateTerrainHeight(int x, int z);
     bool generateTreeValid(int x, int y, int z, int layerSize);
-    void generateTree(int x, int y, int z, vector<tuple<ivec3, unsigned int>>* unloadedChunkBlockstoPlace);
+    void generateTree(int x, int y, int z);
     PerlinNoise* perlinNoise;
     void BuildTree(int x, int y, int z, int size);
     TempNode CreateNode(int x, int y, int z, int size);

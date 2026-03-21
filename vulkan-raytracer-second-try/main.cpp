@@ -71,16 +71,19 @@ void updateFPSCounter() {
 }
 void checkForChunkUpdates() {
 	ivec2 cameraChunkPos = ivec2(floor(camera->position.x / Chunk::CHUNK_SIZE), floor(camera->position.z / Chunk::CHUNK_SIZE));
-	vec2 cameraLoadPos = camera->position;
-	vector<uint32_t> invalidChunks;
+	vec2 cameraLoadPos = vec2(camera->position.x, camera->position.z);
 	if (cameraChunkPos != lastCameraChunkPos && distance(cameraLoadPos, lastCameraLoadPos) > Chunk::CHUNK_SIZE * 1.5) {
-		chunkManager.generateChunksAroundCamera(ivec3(cameraChunkPos.x,0,cameraChunkPos.y), invalidChunks);
-		vulkanApp.InvalidateChunksInGPU(invalidChunks);
-		vulkanApp.UpdateChunkSSBO(&chunkManager);
+		chunkManager.requestChunkGeneration(ivec3(cameraChunkPos.x, 0, cameraChunkPos.y));
 		lastCameraChunkPos = cameraChunkPos;
 		lastCameraLoadPos = cameraLoadPos;
 	}
 }
+void updateChunkSSBO() {
+	vulkanApp.InvalidateChunksInGPU(chunkManager.getInvalidChunks());
+	vulkanApp.UpdateChunkSSBO(&chunkManager);
+	chunkManager.isGeneratingChunks = false;
+}
+
 int main() {
 	VulkanPhysicalDevices::useIntegratedGPU = true;
 	initWindow();
@@ -90,12 +93,15 @@ int main() {
 	Chunk::populateBlockDataArray();
 	chunkManager.init(seed);
 	vector<uint32_t> _;
-	chunkManager.generateChunksAroundCamera(ivec3(0), _);
+	chunkManager.requestChunkGeneration(ivec3(0),true);
 	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	if (!glfwVulkanSupported()) {
 		return -1;
 	}
 	while (!glfwWindowShouldClose(window)) {
+		if (chunkManager.isGeneratingChunks&&chunkManager.isFinishedGeneratingChunks) {
+			updateChunkSSBO();
+		}
 		checkForChunkUpdates();
 		glfwPollEvents();
 		vulkanApp.Render();

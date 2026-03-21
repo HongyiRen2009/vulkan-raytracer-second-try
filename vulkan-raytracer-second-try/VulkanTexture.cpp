@@ -1,6 +1,6 @@
 #include "VulkanTexture.h"
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "include/stb_image.h"
 
 namespace my_vulkan
 {
@@ -361,7 +361,8 @@ namespace my_vulkan
 
 	void VulkanTexture::CreateTextureArray(const char* filename, uint32_t tileWidth, uint32_t tileHeight) {
 		int atlasWidth, atlasHeight, imageChannels;
-		stbi_uc* atlasData = stbi_load(filename, &atlasWidth, &atlasHeight, &imageChannels, STBI_rgb_alpha);
+		const char* basePath = "assets/";
+		stbi_uc* atlasData = stbi_load((std::string(basePath) + filename).c_str(), &atlasWidth, &atlasHeight, &imageChannels, STBI_rgb_alpha);
 		if (!atlasData) {
 			throw std::runtime_error("Failed to load texture atlas: " + std::string(filename));
 		}

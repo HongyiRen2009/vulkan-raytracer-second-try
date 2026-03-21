@@ -117,7 +117,7 @@ uint32_t VulkanPhysicalDevices::SelectPhysicalDevice(VkQueueFlags RequiredQueueT
         const auto& device = physicalDevices[i];
         for (uint32_t j = 0; j < device.queueFamilyProperties.size(); j++) {
             const auto& queueFamily = device.queueFamilyProperties[j];
-			if (physicalDevices[i].deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+			if (physicalDevices[i].deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU&&VulkanPhysicalDevices::useIntegratedGPU) {
                 continue;
             }
             if ((queueFamily.queueFlags & RequiredQueueType) == RequiredQueueType) {
