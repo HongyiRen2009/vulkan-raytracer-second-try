@@ -16,6 +16,7 @@ namespace my_vulkan
 		ChunkTypes::blockData blockDataArray[256];
 		alignas(16) glm::ivec3 allChunksMin;
 		alignas(16) glm::ivec3 allChunksMax;
+		int useVariableStepSize;
 	};
 	struct alignas(16) ChunkData {
 		glm::vec3 chunkPos;

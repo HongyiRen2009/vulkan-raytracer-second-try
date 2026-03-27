@@ -96,7 +96,6 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.image = vulkanCore.GetSwapChainImage(imageIndex),
 		.subresourceRange = imageRange,
 	};
-
 	ComputeUniformData uniformData{
 		.view = camera->getViewMatrix(),
 		.proj = camera->getProjectionMatrix(),
@@ -105,6 +104,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.blockDataArray = {},
 		.allChunksMin = ChunkManager::allChunksMin,
 		.allChunksMax = ChunkManager::allChunksMax,
+		.useVariableStepSize = glfwGetKey(camera->window, GLFW_KEY_V) != GLFW_PRESS
 	};
 	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
 	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
@@ -177,8 +177,6 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 }
 void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 	const vector<unique_ptr<Chunk>>& chunks = chunkManager->GetChunks();
-	size_t maxNodesPerChunk = Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE * Chunk::CHUNK_SIZE;
-	size_t bytesPerChunkSlot = maxNodesPerChunk * sizeof(Node);
 
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
 
@@ -196,13 +194,11 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 		for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
 			frameData.chunkSSBO[frameIdx].AddData(logicalDevice, &data, sizeof(ChunkData), slotIndex * sizeof(ChunkData));
 			if (!chunk->nodePool.empty()) {
-				size_t nodePoolSizeBytes = chunk->nodePool.size() * sizeof(Node);
-				VkDeviceSize offsetBytes = static_cast<VkDeviceSize>(chunk->gpuSlot) * bytesPerChunkSlot;
 				frameData.voxelSSBO[frameIdx].AddData(
 					logicalDevice,
 					chunk->nodePool.data(),
-					nodePoolSizeBytes,
-					offsetBytes
+					chunk->nodePool.size()*sizeof(Node),
+					chunk->gpuSlot * sizeof(Node)
 				);
 			}
 		}

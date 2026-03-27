@@ -40,6 +40,7 @@ layout(binding = 1) uniform UniformBufferObject
     blockData blockDataArray[256];
     ivec3 allChunksMin;
     ivec3 allChunksMax;
+    int useVariableStepSize;
 } ubo;
 layout(binding=2) buffer ChunkSSBO
 {
@@ -142,9 +143,8 @@ traverseResult getVoxel(uint chunkIndex, ivec3 localPos) {
         return traverseResult(0u, 0u);
     }
 
-    uint chunkVolume = ubo.CHUNK_SIZE * ubo.CHUNK_SIZE * ubo.CHUNK_SIZE;
     ChunkData cd = chunkSSBO.chunkData[chunkIndex];
-    uint rootNodeIdx = cd.gpuSlot * chunkVolume;
+    uint rootNodeIdx = cd.gpuSlot;
     uint rootDepth = uint(log2(ubo.CHUNK_SIZE) / 2);
 
     // Reset cache when chunk changes
@@ -201,8 +201,7 @@ vec4 sampleVoxelTexture(uint voxelValue, vec3 hitPos, vec3 normal) {
     uint layer = getFaceTextureLayer(voxelValue, normal);
     return texture(voxelTextureArray, vec3(uv, layer));
 }
-float chunkAABBIntersection(vec3 rayOrigin, vec3 rayDir){
-    vec3 invDir = 1.0 / rayDir;
+float chunkAABBIntersection(vec3 rayOrigin, vec3 rayDir, vec3 invDir){
     
     vec3 t1 = (vec3(ubo.allChunksMin) - rayOrigin) * invDir;
     vec3 t2 = (vec3(ubo.allChunksMax) - rayOrigin) * invDir;
@@ -222,8 +221,7 @@ float chunkAABBIntersection(vec3 rayOrigin, vec3 rayDir){
     
     return entryDist+0.0001; 
 }
-int getAABBEntryAxis(vec3 rayOrigin, vec3 rayDir) {
-    vec3 invDir = 1.0 / rayDir;
+int getAABBEntryAxis(vec3 rayOrigin, vec3 rayDir, vec3 invDir) {
     vec3 t1 = (vec3(ubo.allChunksMin) - rayOrigin) * invDir;
     vec3 t2 = (vec3(ubo.allChunksMax) - rayOrigin) * invDir;
     vec3 tmin = min(t1, t2);
@@ -244,9 +242,9 @@ void rebuildDDAForStepSize(
     out vec3 tMax,
     out vec3 tDelta
 ) {
-    vec3 p = rayOrigin + rayDir * tCurrent + sign(rayDir) * 1e-4;
 
     float s = float(stepSize);
+    vec3 p = rayOrigin + rayDir * tCurrent + sign(rayDir) * (1e-4);
 
     vec3 cellMin = floor(p / s) * s;
     vec3 cellMax = cellMin + vec3(s);
@@ -266,36 +264,40 @@ void rebuildDDAForStepSize(
     tDelta.y = (rayDir.y != 0.0) ? abs(s / rayDir.y) : 1e30;
     tDelta.z = (rayDir.z != 0.0) ? abs(s / rayDir.z) : 1e30;
 }
+
 RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
     const int MAX_STEPS = 1024;
-    float tCurrent = chunkAABBIntersection(rayOrigin, rayDir);
+    vec3 invDir = 1.0 / rayDir;
+    float tCurrent = chunkAABBIntersection(rayOrigin, rayDir,invDir);
     if (tCurrent < 0.0) return RaytraceResult(0u, vec3(0.0), vec3(0.0), vec4(0.0));
 
-    int lastStepAxis = getAABBEntryAxis(rayOrigin, rayDir);
+    int lastStepAxis = getAABBEntryAxis(rayOrigin, rayDir,invDir);
     ivec3 step = ivec3(sign(rayDir));
 
-    uint stepSize = 1u;
+    uint stepSize = 1;
     ivec3 voxelPos;
     vec3 tMax, tDelta;
     rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
 
     for (int step_count = 0; step_count < MAX_STEPS; step_count++) {
 
-vec3 sampleP = rayOrigin + rayDir * (tCurrent + 1e-4);
-ivec3 samplePos = ivec3(floor(sampleP));
+        ivec3 chunkPos = ivec3(
+            floor(float(voxelPos.x) / float(ubo.CHUNK_SIZE)),
+            floor(float(voxelPos.y) / float(ubo.CHUNK_SIZE)),
+            floor(float(voxelPos.z) / float(ubo.CHUNK_SIZE))
+        );
+        ivec3 localPos = voxelPos - chunkPos * int(ubo.CHUNK_SIZE);
 
-ivec3 chunkPos = ivec3(
-    floor(float(samplePos.x) / float(ubo.CHUNK_SIZE)),
-    floor(float(samplePos.y) / float(ubo.CHUNK_SIZE)),
-    floor(float(samplePos.z) / float(ubo.CHUNK_SIZE))
-);
-ivec3 localPos = samplePos - chunkPos * int(ubo.CHUNK_SIZE);
+        int chunkIndex = findChunk(chunkPos);
+        if (chunkIndex < 0) break;
 
-int chunkIndex = findChunk(chunkPos);
-if (chunkIndex < 0) break;
-
-traverseResult res = getVoxel(chunkIndex, localPos);
-
+        traverseResult res = getVoxel(chunkIndex, localPos);
+                uint newStepSize = depthToStepSize(res.depth);
+        if (newStepSize != stepSize) {
+            stepSize = newStepSize;
+            rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
+            continue;
+        }
         if (res.voxelValue != 0u) {
             vec3 normal = vec3(0.0);
             if (lastStepAxis >= 0) {
@@ -315,36 +317,33 @@ traverseResult res = getVoxel(chunkIndex, localPos);
                 return RaytraceResult(res.voxelValue, normal, rayHitPos, texColor);
             }
         }
-        uint newStepSize = depthToStepSize(res.depth);
-        if (newStepSize != stepSize) {
-            stepSize = newStepSize;
-            rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
-            continue;
-        }
+
         
 
         if (tMax.x <= tMax.y && tMax.x <= tMax.z) {
             tCurrent = tMax.x;
             voxelPos.x += step.x * int(stepSize);
-            tMax.x += tDelta.x; // no * stepSize
+            tMax.x += tDelta.x;
             lastStepAxis = 0;
         } else if (tMax.y <= tMax.z) {
             tCurrent = tMax.y;
             voxelPos.y += step.y * int(stepSize);
-            tMax.y += tDelta.y; // no * stepSize
+            tMax.y += tDelta.y;
             lastStepAxis = 1;
         } else {
             tCurrent = tMax.z;
             voxelPos.z += step.z * int(stepSize);
-            tMax.z += tDelta.z; // no * stepSize
+            tMax.z += tDelta.z; 
             lastStepAxis = 2;
         }
-    }
+        }
 
     return RaytraceResult(0u, vec3(0.0), vec3(0.0), vec4(0.0));
 }
 void main()
 {  
+ancestorstack.stackCount = 0u;
+ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index to force reset on first access
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size  = imageSize(img);
 

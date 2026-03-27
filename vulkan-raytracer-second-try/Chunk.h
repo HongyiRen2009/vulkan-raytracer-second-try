@@ -51,6 +51,7 @@ public:
 	unsigned int zCurveBlocks[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]{};
 	static ChunkTypes::blockData blockDataArray[256];
     static void populateBlockDataArray();
+
 private:
     unsigned int generateTerrainHeight(int x, int z);
     bool generateTreeValid(int x, int y, int z, int layerSize);

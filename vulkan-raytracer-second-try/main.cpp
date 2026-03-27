@@ -79,13 +79,14 @@ void checkForChunkUpdates() {
 	}
 }
 void updateChunkSSBO() {
-	vulkanApp.InvalidateChunksInGPU(chunkManager.getInvalidChunks());
+	vulkanApp.InvalidateChunksInGPU(chunkManager.invalidChunks);
+	chunkManager.invalidChunks.clear();
 	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	chunkManager.isGeneratingChunks = false;
 }
 
 int main() {
-	VulkanPhysicalDevices::useIntegratedGPU = true;
+	VulkanPhysicalDevices::useIntegratedGPU = false;
 	initWindow();
 	camera = new Camera(window);
 	camera->updateAspectRatio(static_cast<float>(windowWidth) / static_cast<float>(windowHeight));

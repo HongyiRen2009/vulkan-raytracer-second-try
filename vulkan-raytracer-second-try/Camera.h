@@ -10,7 +10,7 @@ struct Frustum {
 
 class Camera {
 public:
-    glm::vec3 position{ 0.0f, 150.0f, 0.0f };
+    glm::vec3 position{ 2000.0f, 150.0f, 0.0f };
     // Calculated dynamically, use pitch and yaw to change camera starting rotation
     glm::vec3 front{ 0.0f, 0.0f, 1.0f };
     glm::vec3 right{ 1.0f, 0.0f, 0.0f };
@@ -29,6 +29,7 @@ public:
     void on_mouse_callback(double xpos, double ypos);
 	void updateAspectRatio(float aspect) { aspectRatio = aspect; }
     static Camera* instance;
+    GLFWwindow* window = nullptr;
 
 private:
     float deltaTime = 0.0f;
@@ -39,7 +40,6 @@ private:
     bool firstMouse = true;
 	float aspectRatio = 1;
 
-    GLFWwindow* window = nullptr;
 
     static void camera_mouse_callback(GLFWwindow* window, double xpos, double ypos);
 };
