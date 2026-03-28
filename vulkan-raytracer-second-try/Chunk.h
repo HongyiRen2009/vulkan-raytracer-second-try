@@ -48,7 +48,6 @@ public:
     static bool isInteractable(unsigned int blockId);
     static unsigned int maxBlockId();
     unsigned int blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE]{};
-	unsigned int zCurveBlocks[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]{};
 	static ChunkTypes::blockData blockDataArray[256];
     static void populateBlockDataArray();
 
@@ -60,10 +59,5 @@ private:
     void BuildTree(int x, int y, int z, int size);
     TempNode CreateNode(int x, int y, int z, int size);
 	bool isRegionUniform(int x, int y, int z, int depth, unsigned int blockId);
-    bool isRegion64UniformAVX(int x, int y, int z, unsigned int blockId);
     vector<TempNode> childNodePool;
-
-    template<int SIZE>
-    bool isRegionUniformTemplated(int x, int y, int z, unsigned int blockId);
-
 };

@@ -33,7 +33,7 @@ public:
 
 private:
 	std::mutex invalidChunksMutex;
-	int renderDistance = 2;
+	int renderDistance = 8;
 	int renderDistanceHeight = 1;
 	unsigned int seed;
 	vector<unique_ptr<Chunk>> chunks;

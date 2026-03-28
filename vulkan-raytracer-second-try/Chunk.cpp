@@ -334,61 +334,40 @@ void Chunk::generateTree(int x, int y, int z) {
 	}
 }
 void Chunk::generateTerrain() {
-	float startTime = glfwGetTime();
+	std::vector<std::vector<unsigned int>> columnHeights(CHUNK_SIZE, std::vector<unsigned int>(CHUNK_SIZE));
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
-
 			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.z * CHUNK_SIZE);
-			unsigned int terrainHeight = generateTerrainHeight(globalPosition.x, globalPosition.y);
+			columnHeights[i][k] = generateTerrainHeight(globalPosition.x, globalPosition.y);
+		}
+	}
 
-			// Fill blocks: solid below terrain height, air above
-			for (unsigned int j = 0; j < CHUNK_SIZE; j++) {
+	for (unsigned int j = 0; j < CHUNK_SIZE; j++) {
+		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
+			for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 				unsigned int globalY = j + chunkPosition.y * CHUNK_SIZE;
-				if (blocks[i][j][k] != 0) {
-					continue;
-				}
+				unsigned int terrainHeight = columnHeights[i][k];
+
+				if (blocks[i][j][k] != 0) continue;
+
 				if (globalY > terrainHeight) {
-					if (globalY <= waterLevel) {
-						blocks[i][j][k] = 6;
-						continue;
-					}
-
-					blocks[i][j][k] = 0;
+					blocks[i][j][k] = (globalY <= waterLevel) ? 6 : 0;
 					continue;
 				}
-				//if (j >= snowLevel) {
-				//	blocks[i][j][k] = 9;
-				//	continue;
-				//}
-				//if (terrainHeight >= mountainLevel) {
-				//	blocks[i][j][k] = 3;
-				//	continue;
-				//}
 
-				if (terrainHeight<waterLevel + 2 && j>terrainHeight - 3 && terrainHeight >= waterLevel) {
+				if (terrainHeight < waterLevel + 2 && j > terrainHeight - 3 && terrainHeight >= waterLevel) {
 					blocks[i][j][k] = 7;
 					continue;
-
 				}
 				if (globalY == terrainHeight) {
-					if (globalY >= waterLevel) {
-						blocks[i][j][k] = 1;
-						continue;
-					}
-					blocks[i][j][k] = 8;
+					blocks[i][j][k] = (globalY >= waterLevel) ? 1 : 8;
 					continue;
 				}
 				if (globalY > terrainHeight - 6) {
-					if (terrainHeight >= waterLevel) {
-						blocks[i][j][k] = 2;
-						continue;
-					}
-					blocks[i][j][k] = 8;
+					blocks[i][j][k] = (terrainHeight >= waterLevel) ? 2 : 8;
 					continue;
-
 				}
 				blocks[i][j][k] = 3;
-
 			}
 		}
 	}
@@ -408,58 +387,7 @@ void Chunk::generateTerrain() {
 			}
 		}
 	}
-	//Generate z-curve array for faster tree generation
-	for(int x = 0;x < CHUNK_SIZE;x++){
-		for(int y = 0;y < CHUNK_SIZE;y++){
-			for(int z = 0;z < CHUNK_SIZE;z++){
-				uint64_t mortonIndex = libmorton::morton3D_32_encode(x, y, z);
-				zCurveBlocks[mortonIndex] = blocks[x][y][z];
-			}
-		}
-	}
-	cout << "Finished generating terrain in " << glfwGetTime() - startTime << " seconds." << endl;
-	startTime = glfwGetTime();
 	BuildTree(0, 0, 0, CHUNK_SIZE);
-	cout << "Finished building tree in " << glfwGetTime() - startTime << " seconds. Size: " <<nodePool.size() << " nodes." << endl;
-}
-template<int SIZE>
-bool Chunk::isRegionUniformTemplated(int x, int y, int z, unsigned int blockId) {
-	int zIndex = libmorton::morton3D_32_encode(x, y, z);
-	const uint32_t* data = &zCurveBlocks[zIndex];
-	int count = SIZE * SIZE * SIZE;
-
-	__m256i target = _mm256_set1_epi32(blockId);
-
-	__m256i diff_accumulator = _mm256_setzero_si256();
-
-	for (int i = 0; i < count; i += 8) {
-		__m256i current_chunk = _mm256_loadu_si256((const __m256i*)(data + i));
-
-		__m256i diff = _mm256_xor_si256(current_chunk, target);
-
-		diff_accumulator = _mm256_or_si256(diff_accumulator, diff);
-	}
-
-	return _mm256_testz_si256(diff_accumulator, diff_accumulator);
-}
-bool Chunk::isRegionUniform(int x, int y, int z, int size, unsigned int blockId) {
-	if (x<0 || y<0 || z<0 || x + size>CHUNK_SIZE || y + size>CHUNK_SIZE || z + size>CHUNK_SIZE) {
-		return false;
-	}
-	int zIndex = libmorton::morton3D_32_encode(x, y, z);
-	switch (size) {
-	case 4:  return isRegionUniformTemplated<4>(x, y, z, blockId);
-	case 16: return isRegionUniformTemplated<16>(x, y, z, blockId);
-	case 64: return isRegionUniformTemplated<64>(x, y, z, blockId);
-	case 256: return isRegionUniformTemplated<256>(x, y, z, blockId);
-	case 1024: return isRegionUniformTemplated<1024>(x, y, z, blockId);
-	default:
-		for (int i = 0;i < size * size * size;i++) {
-			if (zCurveBlocks[zIndex] != blockId) {
-				return false;
-			}
-		}
-	}
 }
 
 TempNode Chunk::CreateNode(int x, int y, int z, int size) {
@@ -509,12 +437,19 @@ TempNode Chunk::CreateNode(int x, int y, int z, int size) {
 	node.childCount = (uint16_t)childCount;
 	return node;
 }
-
+bool Chunk::isRegionUniform(int x, int y, int z, int depth, unsigned int blockId) {
+	for (int i = 0; i < depth; i++) {
+		for (int j = 0; j < depth; j++) {
+			for (int k = 0; k < depth; k++) {
+				if (blocks[x + i][y + j][z + k] != blockId) {
+					return false;
+				}
+			}
+		}
+	}
+	return true;
+}
 void Chunk::BuildTree(int x, int y, int z, int size) {
-	childNodePool.clear();
-	nodePool.clear();
-	childNodePool.reserve(50000);
-	nodePool.reserve(50000);
 	TempNode rootNode = CreateNode(x, y, z, size);
 	queue<pair<TempNode*, uint32_t>> nodeQueue;
 	nodeQueue.push({ &rootNode, UINT32_MAX });
@@ -537,6 +472,7 @@ void Chunk::BuildTree(int x, int y, int z, int size) {
 			}
 		}
 	}
+	childNodePool.clear();
 }
 Chunk::~Chunk() {
 }

@@ -94,7 +94,6 @@ int main() {
 	Chunk::populateBlockDataArray();
 	chunkManager.init(seed);
 	vector<uint32_t> _;
-	chunkManager.requestChunkGeneration(ivec3(0),true);
 	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	if (!glfwVulkanSupported()) {
 		return -1;

@@ -73,7 +73,9 @@ void ChunkManager::onChunkGenerationComplete() {
 	pendingChunkGenerations--;
 }
 void ChunkManager::loadChunks(vector<ivec3> spawnPositions) {
-	for (int i = 0;i < spawnPositions.size();i++) {
+	vector<vector<Chunk*>> chunksToGenerate;
+	chunksToGenerate.resize(threadPool.size());
+	for (int i = 0; i < spawnPositions.size(); i++) {
 		auto chunk = std::make_unique<Chunk>(seed, spawnPositions[i]);
 		uint32_t hash = hashChunkPos(spawnPositions[i]);
 		uint32_t foundSlot = UINT32_MAX;
@@ -81,13 +83,11 @@ void ChunkManager::loadChunks(vector<ivec3> spawnPositions) {
 		for (int j = 0; j < 100; j++) {
 			uint32_t index = (hash + j) % 10000;
 			if (hashedChunkPositions.find(index) == hashedChunkPositions.end()) {
-
 				chunk->hashTableSlot = index;
 				hashedChunkPositions.insert(index);
 				foundSlot = index;
 				break;
 			}
-
 		}
 
 		if (foundSlot != UINT32_MAX) {
@@ -95,15 +95,27 @@ void ChunkManager::loadChunks(vector<ivec3> spawnPositions) {
 			Chunk* chunkPtr = chunk.get();
 			chunks.push_back(std::move(chunk));
 			pendingChunkGenerations++;
-			threadPool.enqueue([this, chunkPtr]() {
-				chunkPtr->generateTerrain();
-				chunkPtr->gpuSlot = chunkFreeList.allocate(chunkPtr->nodePool.size());
-				onChunkGenerationComplete();
-				});
-
+			chunksToGenerate[i % threadPool.size()].push_back(chunkPtr);
 		}
-		else {
-			std::cout << "ERROR: No free hash slots available for chunk at " << spawnPositions[i].x << ", " << spawnPositions[i].y << ", " << spawnPositions[i].z << std::endl;
+	}
+
+	for (int i = 0; i < chunksToGenerate.size(); i++) {
+		threadPool.enqueue([this, chunksToGenerate, i]() {
+			for (Chunk* chunk : chunksToGenerate[i]) {
+				chunk->generateTerrain();
+				onChunkGenerationComplete();
+			}
+			});
+	}
+
+	while (pendingChunkGenerations.load() > 0) {
+		cout << pendingChunkGenerations.load() << " chunks left to generate..." << endl;
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+
+	for (int i = 0;i < chunksToGenerate.size();i++) {
+		for(Chunk* chunk : chunksToGenerate[i]) {
+			chunk->gpuSlot = chunkFreeList.allocate(chunk->nodePool.size());
 		}
 	}
 }
@@ -121,6 +133,7 @@ void ChunkManager::requestChunkGeneration(ivec3 cameraChunkPos, bool blocking) {
 		std::unique_lock<std::mutex> lock(chunkGenMutex);
 		chunkGenCV.wait(lock, [this]() { return isFinishedGeneratingChunks; });
 	}
+
 }
 void ChunkManager::chunkGenerationWorker() {
 	while (true) {
