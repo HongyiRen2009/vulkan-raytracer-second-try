@@ -40,7 +40,7 @@ layout(binding = 1) uniform UniformBufferObject
     blockData blockDataArray[256];
     ivec3 allChunksMin;
     ivec3 allChunksMax;
-    int useVariableStepSize;
+    int computeToggle;
 } ubo;
 layout(binding=2) buffer ChunkSSBO
 {
@@ -195,12 +195,6 @@ uint getFaceTextureLayer(uint voxelValue, vec3 normal) {
     blockData b = ubo.blockDataArray[voxelValue];
     return (face < 4u) ? b.face0123[face] : b.face45pad[face - 4u];
 }
-
-vec4 sampleVoxelTexture(uint voxelValue, vec3 hitPos, vec3 normal) {
-    vec2 uv = getUVForFace(hitPos, normal);
-    uint layer = getFaceTextureLayer(voxelValue, normal);
-    return texture(voxelTextureArray, vec3(uv, layer));
-}
 float chunkAABBIntersection(vec3 rayOrigin, vec3 rayDir, vec3 invDir){
     
     vec3 t1 = (vec3(ubo.allChunksMin) - rayOrigin) * invDir;
@@ -264,7 +258,14 @@ void rebuildDDAForStepSize(
     tDelta.y = (rayDir.y != 0.0) ? abs(s / rayDir.y) : 1e30;
     tDelta.z = (rayDir.z != 0.0) ? abs(s / rayDir.z) : 1e30;
 }
-
+vec4 sampleVoxelTexture(uint voxelValue, vec3 hitPos, vec3 normal, float distance) {
+    vec2 uv = getUVForFace(hitPos, normal);
+    uint layer = getFaceTextureLayer(voxelValue, normal);
+    float lod = log2(max(distance, 1.0)) * 0.02;
+    lod = clamp(lod, 0.0, 12.0);
+    
+    return textureLod(voxelTextureArray, vec3(uv, layer), lod);
+}
 RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
     const int MAX_STEPS = 1024;
     vec3 invDir = 1.0 / rayDir;
@@ -292,7 +293,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
         if (chunkIndex < 0) break;
 
         traverseResult res = getVoxel(chunkIndex, localPos);
-                uint newStepSize = depthToStepSize(res.depth);
+        uint newStepSize = depthToStepSize(res.depth);
         if (newStepSize != stepSize) {
             stepSize = newStepSize;
             rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
@@ -312,7 +313,8 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir) {
             }
 
             vec3 rayHitPos = rayOrigin + rayDir * tCurrent;
-            vec4 texColor = sampleVoxelTexture(res.voxelValue, rayHitPos, normal);
+            float rayDistance = tCurrent;
+            vec4 texColor = sampleVoxelTexture(res.voxelValue, rayHitPos, normal, rayDistance);
             if (texColor.a > 0.01) {
                 return RaytraceResult(res.voxelValue, normal, rayHitPos, texColor);
             }

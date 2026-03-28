@@ -104,7 +104,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.blockDataArray = {},
 		.allChunksMin = ChunkManager::allChunksMin,
 		.allChunksMax = ChunkManager::allChunksMax,
-		.useVariableStepSize = glfwGetKey(camera->window, GLFW_KEY_V) != GLFW_PRESS
+		.computeToggle = glfwGetKey(camera->window, GLFW_KEY_V) != GLFW_PRESS
 	};
 	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
 	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
