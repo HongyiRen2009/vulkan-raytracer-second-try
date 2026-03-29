@@ -113,6 +113,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.cameraPos = camera->position,
 		.CHUNK_SIZE = Chunk::CHUNK_SIZE,
 		.blockDataArray = {},
+		.twoWideRegionMasks ={},
 		.allChunksMin = ChunkManager::allChunksMin,
 		.allChunksMax = ChunkManager::allChunksMax,
 
@@ -123,6 +124,10 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.isBeam = 1u
 	};
 	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
+	for (uint32_t i = 0; i < 27; i++) {
+		uniformData.twoWideRegionMasks[i].value = rtPipeline.twoWideRegionMasks[i];
+		uniformData.twoWideRegionMasks[i].pad = 0ull;
+	}
 	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
 
 	BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);

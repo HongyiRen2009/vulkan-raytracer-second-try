@@ -4,6 +4,22 @@ namespace my_vulkan
 {
 
 	RaytracingComputePipeline::RaytracingComputePipeline() {
+		// Masks for a 2x2x2 cube in a 4x4x4 cube
+		for (int i = 0;i < 27;i++) {
+			uint64_t mask = 0;
+			int x = i % 3;
+			int y = (i / 3) % 3;
+			int z = i / 9;
+			for (int dx = 0; dx < 2; dx++) {
+				for (int dy = 0; dy < 2; dy++) {
+					for (int dz = 0; dz < 2; dz++) {
+						int bitIndex = ((z + dz) * 4 * 4) + ((y + dy) * 4) + (x + dx);
+						mask |= (1ULL << bitIndex);
+					}
+				}
+			}
+			RaytracingComputePipeline::twoWideRegionMasks[i] = mask;
+		}
 	}
 	RaytracingComputePipeline::~RaytracingComputePipeline() {
 	}
