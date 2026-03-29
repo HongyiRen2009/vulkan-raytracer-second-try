@@ -4,6 +4,11 @@
 #include "VulkanUtils.h"
 namespace my_vulkan
 {
+	struct ComputePushConstants {
+		uint32_t beamResolutionDivisor;
+		uint32_t computeToggle;
+		uint32_t isBeam;
+	};
 	class ComputePipeline
 	{
 	public:
@@ -11,7 +16,12 @@ namespace my_vulkan
 		~ComputePipeline();
 		void Init(VulkanCore& core, VkDescriptorPool DescriptorPool, const char* ComputeShaderFileName);
 		void Cleanup();
-		void RecordCommandBuffer(VkCommandBuffer commandBuffer, VkDescriptorSet DescriptorSet, uint32_t GroupCountX, uint32_t GroupCountY, uint32_t GroupCountZ);
+		void RecordCommandBuffer(VkCommandBuffer commandBuffer,
+			VkDescriptorSet DescriptorSet,
+			uint32_t GroupCountX,
+			uint32_t GroupCountY,
+			uint32_t GroupCountZ,
+			const ComputePushConstants& pushConstants);
 		void AllocateDescriptorSets(int DescriptorCount, vector<VkDescriptorSet>& DescriptorSets);
 
 	protected:

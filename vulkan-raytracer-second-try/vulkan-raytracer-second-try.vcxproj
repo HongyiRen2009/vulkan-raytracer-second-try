@@ -134,6 +134,8 @@
     <ClCompile Include="ComputePipeline.cpp" />
     <ClCompile Include="Framedata.cpp" />
     <ClCompile Include="FreeList.cpp" />
+    <ClCompile Include="ImageAndMemory.cpp" />
+    <ClCompile Include="ImageAndMemory.h" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="RaytracingComputePipeline.cpp" />
     <ClCompile Include="VulkanApp.cpp" />

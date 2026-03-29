@@ -63,6 +63,12 @@
     <ClCompile Include="FreeList.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ImageAndMemory.h">
+      <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ImageAndMemory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="VulkanCore.h">

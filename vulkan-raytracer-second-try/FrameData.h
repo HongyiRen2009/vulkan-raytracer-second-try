@@ -6,6 +6,7 @@
 #include "BufferAndMemory.h"
 #include "RaytracingComputePipeline.h"
 #include "Chunk.h"
+#include "ImageAndMemory.h"
 using namespace std;
 namespace my_vulkan
 {
@@ -15,13 +16,14 @@ namespace my_vulkan
 		vector<VkSemaphore> imageAvailable;
 		vector<VkSemaphore> renderFinished;
 		vector<VkFence> inFlight;
-		vector<VkImageView> computeOutput;       
-		vector <VkImage> computeOutputImage;
 		vector<VkDescriptorSet> descriptor;
 		vector<BufferAndMemory> uniformBuffers;
 		vector <BufferAndMemory> chunkSSBO;
 		vector <BufferAndMemory> voxelSSBO;
 		vector<BufferAndMemory> oneNodeSSBO;
+		vector<ImageAndMemory> computeOutputImage;
+		vector<ImageAndMemory> beamOutputImage;
+ 		constexpr static int beamResolutionDivider =16;
 		FrameData();
 		~FrameData();
 		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent);
@@ -37,9 +39,8 @@ namespace my_vulkan
 		void CreateSemaphores();
 		void CreateFences();
 		void CreateCommandBuffers(VkCommandPool commandPool);
-		void CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice, VkExtent2D extent);
+		void CreateImages(VkPhysicalDevice physicalDevice, VkExtent2D extent);
 		void CreateBuffers(VkPhysicalDevice physicalDevice, VkDevice logicalDevice);
-		vector<VkDeviceMemory> computeOutputImageMemory;
 		int numFrames = 0;
 		int frameIndex = -1;
 

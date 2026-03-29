@@ -15,42 +15,49 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
-	VkDescriptorSetLayoutBinding uniformBufferBinding{
+	VkDescriptorSetLayoutBinding beamOutputImageBinding{
 		.binding = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr
+	};
+	VkDescriptorSetLayoutBinding uniformBufferBinding{
+		.binding = 2,
 		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 		.descriptorCount = 1,
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
 	VkDescriptorSetLayoutBinding chunkSSBOBinding{
-		.binding = 2,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-		.pImmutableSamplers = nullptr,
-	};
-	VkDescriptorSetLayoutBinding voxelSSBOBinding{
 		.binding = 3,
 		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 		.descriptorCount = 1,
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
-	VkDescriptorSetLayoutBinding oneNodeSSBOBinding{
+	VkDescriptorSetLayoutBinding voxelSSBOBinding{
 		.binding = 4,
 		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 		.descriptorCount = 1,
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
-	VkDescriptorSetLayoutBinding blockTextureArrayBinding{
+	VkDescriptorSetLayoutBinding oneNodeSSBOBinding{
 		.binding = 5,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr,
+	};
+	VkDescriptorSetLayoutBinding blockTextureArrayBinding{
+		.binding = 6,
 		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		.descriptorCount = 1,
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
-	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding, uniformBufferBinding,chunkSSBOBinding,voxelSSBOBinding,oneNodeSSBOBinding,blockTextureArrayBinding };
+	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding,beamOutputImageBinding, uniformBufferBinding,chunkSSBOBinding,voxelSSBOBinding,oneNodeSSBOBinding,blockTextureArrayBinding };
 	VkDescriptorSetLayoutCreateInfo layoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
@@ -63,11 +70,16 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 	CHECK_VK_RESULT(result,"vkCreateDescriptorSetLayout");
 	return descriptorSetLayout;
 }
-void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO,VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray ) {
+void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkImageView beamOutputImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO,VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray ) {
 	VkDescriptorImageInfo outputImageInfo{
 		.sampler = VK_NULL_HANDLE,
 		.imageView = outputImageView,
 		.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+	};
+	VkDescriptorImageInfo beamOutputImageInfo{
+		.sampler = VK_NULL_HANDLE,
+		.imageView = beamOutputImageView,
+		.imageLayout = VK_IMAGE_LAYOUT_GENERAL
 	};
 	VkDescriptorBufferInfo uniformBufferInfo{
 		.buffer = uniformBuffer,
@@ -94,7 +106,7 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.imageView = blockTextureArray->imageView,
 		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	};
-	VkWriteDescriptorSet writeDescriptorSet{
+	VkWriteDescriptorSet computeOutputWrite{
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 		.pNext = nullptr,
 		.dstSet = descriptorSet,
@@ -106,11 +118,23 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.pBufferInfo = nullptr,
 		.pTexelBufferView = nullptr,
 	};
-	VkWriteDescriptorSet uniformBufferWrite{
+	VkWriteDescriptorSet beamOutputWrite{
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 		.pNext = nullptr,
 		.dstSet = descriptorSet,
 		.dstBinding = 1,
+		.dstArrayElement = 0,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		.pImageInfo = &beamOutputImageInfo,
+		.pBufferInfo = nullptr,
+		.pTexelBufferView = nullptr,
+	};
+	VkWriteDescriptorSet uniformBufferWrite{
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.pNext = nullptr,
+		.dstSet = descriptorSet,
+		.dstBinding = 2,
 		.dstArrayElement = 0,
 		.descriptorCount = 1,
 		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -122,7 +146,7 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 		.pNext = nullptr,
 		.dstSet = descriptorSet,
-		.dstBinding = 2,
+		.dstBinding = 3,
 		.dstArrayElement = 0,
 		.descriptorCount = 1,
 		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -134,7 +158,7 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 	.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 	.pNext = nullptr,
 	.dstSet = descriptorSet,
-	.dstBinding = 3,
+	.dstBinding = 4,
 	.dstArrayElement = 0,
 	.descriptorCount = 1,
 	.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -146,7 +170,7 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 		.pNext = nullptr,
 		.dstSet = descriptorSet,
-		.dstBinding = 4,
+		.dstBinding = 5,
 		.dstArrayElement = 0,
 		.descriptorCount = 1,
 		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -158,7 +182,7 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 		.pNext = nullptr,
 		.dstSet = descriptorSet,
-		.dstBinding = 5,
+		.dstBinding = 6,
 		.dstArrayElement = 0,
 		.descriptorCount = 1,
 		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -166,7 +190,7 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.pBufferInfo = nullptr,
 		.pTexelBufferView = nullptr,
 	};
-	std::vector<VkWriteDescriptorSet> descriptorWrites = { writeDescriptorSet, uniformBufferWrite,chunkSSBOWrite,voxelSSBOWrite,oneNodeSSBOWrite,blockTextureWrite };
+	std::vector<VkWriteDescriptorSet> descriptorWrites = { computeOutputWrite,beamOutputWrite, uniformBufferWrite,chunkSSBOWrite,voxelSSBOWrite,oneNodeSSBOWrite,blockTextureWrite };
 	vkUpdateDescriptorSets(logicalDevice, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 
 }

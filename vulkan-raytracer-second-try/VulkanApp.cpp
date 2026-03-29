@@ -10,7 +10,7 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 	vulkanCore.Init(AppName, window);
 	CreateCopyCommandBuffer();
 	blockTextureArray.Init(vulkanCore.GetLogicalDevice(), copyCommandBuffer, vulkanCore.GetQueue(), vulkanCore.GetPhysicalDevices());
-	blockTextureArray.CreateTextureArray("atlas.png",25,25);
+	blockTextureArray.CreateTextureArray("atlas.png", 25, 25);
 	queue = vulkanCore.GetQueue();
 	numImages = vulkanCore.GetNumSwapChainImages();
 	CreateDescriptorPool();
@@ -20,7 +20,7 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutputImage[i].imageView,frameData.beamOutputImage[i].imageView, frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
 	}
 	ChunkData emptySlot = { .chunkPos = glm::vec3(0.0f), .gpuSlot = 0, .valid = 0 };
 	for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
@@ -46,6 +46,10 @@ void VulkanApp::CreateDescriptorPool() {
 			.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
 	},
 	{
+		.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+},
+	{
 		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
 },
@@ -61,7 +65,7 @@ void VulkanApp::CreateDescriptorPool() {
 	{
 	.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 	.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
-	
+
 },
 	{
 		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -80,6 +84,7 @@ void VulkanApp::CreateDescriptorPool() {
 	CHECK_VK_RESULT(result, "vkCreateDescriptorPool");
 	cout << "Descriptor pool created successfully!" << std::endl;
 }
+
 void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	VkImageSubresourceRange imageRange{
 		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -101,6 +106,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.image = vulkanCore.GetSwapChainImage(imageIndex),
 		.subresourceRange = imageRange,
 	};
+
 	ComputeUniformData uniformData{
 		.view = camera->getViewMatrix(),
 		.proj = camera->getProjectionMatrix(),
@@ -109,23 +115,51 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.blockDataArray = {},
 		.allChunksMin = ChunkManager::allChunksMin,
 		.allChunksMax = ChunkManager::allChunksMax,
-		.computeToggle = glfwGetKey(camera->window, GLFW_KEY_V) != GLFW_PRESS
+
+	};
+	ComputePushConstants pushConstants{
+		.beamResolutionDivisor = FrameData::beamResolutionDivider,
+		.computeToggle = (glfwGetKey(camera->window, GLFW_KEY_V) != GLFW_PRESS) ? 1u : 0u,
+		.isBeam = 1u
 	};
 	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
 	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
 
 	BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
 
+	// Beam pass
+	VkMemoryBarrier beamPreComputeBarrier{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = 0,
+		.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+	};
 	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
 		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &swapchainToTransferBarrier);
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		0, 1, &beamPreComputeBarrier, 0, nullptr, 0, nullptr);
 
-	uint32_t groupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
-	uint32_t groupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
-	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], groupCountX, groupCountY, 1);
+	uint32_t beamGroupCountX = (vulkanCore.surfaceExtent.width / FrameData::beamResolutionDivider + 15) / 16;
+	uint32_t beamGroupCountY = (vulkanCore.surfaceExtent.height / FrameData::beamResolutionDivider + 15) / 16;
+	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], beamGroupCountX, beamGroupCountY, 1,pushConstants);
 
-	VkMemoryBarrier memoryBarrier{
+	VkMemoryBarrier beamToFullBarrier{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+	};
+	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		0, 1, &beamToFullBarrier, 0, nullptr, 0, nullptr);
+
+	uint32_t fullGroupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
+	uint32_t fullGroupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
+	pushConstants.isBeam = 0u;
+	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], fullGroupCountX, fullGroupCountY, 1, pushConstants);
+	// Copy to swapchain image
+	VkMemoryBarrier fullToTransferBarrier{
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
 		.pNext = nullptr,
 		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
@@ -134,7 +168,12 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+		0, 1, &fullToTransferBarrier, 0, nullptr, 0, nullptr);
+
+	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, nullptr, 0, nullptr, 1, &swapchainToTransferBarrier);
 
 	VkImageCopy region = {
 		.srcSubresource = {
@@ -155,7 +194,7 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 	};
 
 	vkCmdCopyImage(frameData.commandBuffers[frameIndex],
-		frameData.computeOutputImage[frameIndex], VK_IMAGE_LAYOUT_GENERAL,
+		frameData.computeOutputImage[frameIndex].image, VK_IMAGE_LAYOUT_GENERAL,
 		vulkanCore.GetSwapChainImage(imageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1, &region);
 
@@ -274,7 +313,7 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutputImage[i].imageView,frameData.beamOutputImage[i].imageView, frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
 	}
 
 }
@@ -288,6 +327,6 @@ void VulkanApp::Cleanup() {
 	}
 	frameData.Cleanup(vulkanCore.GetCommandPool());
 	blockTextureArray.Cleanup(vulkanCore.GetLogicalDevice());
-	
+
 	vulkanCore.Cleanup();
 }

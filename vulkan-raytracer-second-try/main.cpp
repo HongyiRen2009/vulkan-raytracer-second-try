@@ -88,7 +88,7 @@ void updateChunkSSBO() {
 }
 
 int main() {
-	VulkanPhysicalDevices::useIntegratedGPU = false;
+	VulkanPhysicalDevices::useIntegratedGPU = true;
 	initWindow();
 	camera = new Camera(window);
 	camera->updateAspectRatio(static_cast<float>(windowWidth) / static_cast<float>(windowHeight));

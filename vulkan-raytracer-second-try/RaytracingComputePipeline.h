@@ -16,7 +16,7 @@ namespace my_vulkan
 		ChunkTypes::blockData blockDataArray[256];
 		alignas(16) glm::ivec3 allChunksMin;
 		alignas(16) glm::ivec3 allChunksMax;
-		int computeToggle;
+
 	};
 	struct alignas(16) ChunkData {
 		glm::vec3 chunkPos;
@@ -30,7 +30,7 @@ namespace my_vulkan
 	public:
 		RaytracingComputePipeline();
 		~RaytracingComputePipeline();
-		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray);
+		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkImageView beamOutputImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray);
 	protected:
 		virtual VkDescriptorSetLayout CreateDescriptorSetLayout(VulkanCore& core) override;
 	};

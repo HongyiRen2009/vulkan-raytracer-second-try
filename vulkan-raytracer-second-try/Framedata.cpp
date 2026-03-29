@@ -5,13 +5,13 @@ namespace my_vulkan
 	}
 	FrameData::~FrameData() {
 	}
-	void FrameData::init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent) {
+	void FrameData::init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames, VkExtent2D extent) {
 		frameIndex = -1;
 		this->numFrames = numFrames;
 		this->logicalDevice = logicalDevice;
 		CreateSemaphores();
 		CreateCommandBuffers(commandPool);
-		CreateComputeOutputImageViews(physicalDevice, extent);
+		CreateImages(physicalDevice, extent);
 		CreateFences();
 		CreateBuffers(physicalDevice, logicalDevice);
 	}
@@ -35,7 +35,7 @@ namespace my_vulkan
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
 		for (int i = 0; i < numFrames; i++) {
-			VkImageMemoryBarrier barrier{
+			VkImageMemoryBarrier computeBarrier{
 				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 				.pNext = nullptr,
 				.srcAccessMask = 0,
@@ -44,7 +44,7 @@ namespace my_vulkan
 				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				.image = computeOutputImage[i],
+				.image = computeOutputImage[i].image,
 				.subresourceRange = {
 					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 					.baseMipLevel = 0,
@@ -56,7 +56,30 @@ namespace my_vulkan
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0, 0, nullptr, 0, nullptr, 1, &barrier);
+				0, 0, nullptr, 0, nullptr, 1, &computeBarrier);
+
+			VkImageMemoryBarrier beamBarrier{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.pNext = nullptr,
+				.srcAccessMask = 0,
+				.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = beamOutputImage[i].image,
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &beamBarrier);
 		}
 
 		vkEndCommandBuffer(commandBuffer);
@@ -105,82 +128,6 @@ namespace my_vulkan
 		CHECK_VK_RESULT(result, "vkAllocateCommandBuffers");
 		cout << "Command buffers allocated successfully!" << std::endl;
 	}
-	uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-		VkPhysicalDeviceMemoryProperties memProperties;
-		vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
-
-		for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-			if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-				return i;
-			}
-		}
-		throw std::runtime_error("failed to find suitable memory type!");
-	}
-	void FrameData::CreateComputeOutputImageViews(VkPhysicalDevice physicalDevice, VkExtent2D extent) {
-		computeOutput.resize(numFrames);
-		computeOutputImage.resize(numFrames);
-		computeOutputImageMemory.resize(numFrames);
-		for (int i = 0;i < numFrames;i++) {
-
-
-			VkImageCreateInfo imageCreateInfo{
-				.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-				.pNext = nullptr,
-				.flags = 0,
-				.imageType = VK_IMAGE_TYPE_2D,
-				.format = VK_FORMAT_R8G8B8A8_UNORM,
-				.extent = { extent.width, extent.height, 1 },
-				.mipLevels = 1,
-				.arrayLayers = 1,
-				.samples = VK_SAMPLE_COUNT_1_BIT,
-				.tiling = VK_IMAGE_TILING_OPTIMAL,
-				.usage =  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-				.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-				.queueFamilyIndexCount = 0,
-				.pQueueFamilyIndices = nullptr,
-				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			};
-			VkResult result = vkCreateImage(logicalDevice, &imageCreateInfo, nullptr, &computeOutputImage[i]);
-			CHECK_VK_RESULT(result, "vkCreateImage");
-			VkMemoryRequirements memRequirements;
-			vkGetImageMemoryRequirements(logicalDevice, computeOutputImage[i], &memRequirements);
-
-			VkMemoryAllocateInfo allocInfo{
-				.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-				.allocationSize = memRequirements.size,
-				.memoryTypeIndex = findMemoryType(physicalDevice, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-			};
-
-			result = vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &computeOutputImageMemory[i]);
-			CHECK_VK_RESULT(result, "vkAllocateMemory");
-
-			vkBindImageMemory(logicalDevice, computeOutputImage[i], computeOutputImageMemory[i], 0);
-
-			VkImageViewCreateInfo imageViewCreateInfo{
-				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-				.pNext = nullptr,
-				.flags = 0,
-				.image = computeOutputImage[i],
-				.viewType = VK_IMAGE_VIEW_TYPE_2D,
-				.format = VK_FORMAT_R8G8B8A8_UNORM,
-				.components = {
-					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-					.a = VK_COMPONENT_SWIZZLE_IDENTITY,
-				},
-				.subresourceRange = {
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1,
-				},
-			};
-			result = vkCreateImageView(logicalDevice, &imageViewCreateInfo, nullptr, &computeOutput[i]);
-			CHECK_VK_RESULT(result, "vkCreateImageView");
-		}
-	}
 	void FrameData::CreateFences() {
 		inFlight.resize(numFrames);
 		VkFenceCreateInfo fenceCreateInfo{
@@ -193,6 +140,14 @@ namespace my_vulkan
 			CHECK_VK_RESULT(result, "vkCreateFence");
 		}
 	}
+	void FrameData::CreateImages(VkPhysicalDevice physicalDevice, VkExtent2D extent) {
+		computeOutputImage.resize(numFrames);
+		beamOutputImage.resize(numFrames);
+		for (int i = 0;i < numFrames;i++) {
+			computeOutputImage[i].CreateImage(physicalDevice, logicalDevice, extent.width, extent.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			beamOutputImage[i].CreateImage(physicalDevice, logicalDevice, extent.width / beamResolutionDivider, extent.height / beamResolutionDivider, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		}
+	}
 	void FrameData::CreateBuffers(VkPhysicalDevice physicalDevice, VkDevice logicalDevice) {
 		uniformBuffers.resize(numFrames);
 		chunkSSBO.resize(numFrames);
@@ -201,8 +156,8 @@ namespace my_vulkan
 		for (int i = 0;i < numFrames;i++) {
 			uniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ComputeUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 			chunkSSBO[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ChunkData) * 10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT); // 256 MB for voxel data
-			oneNodeSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64*1024*1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT); // 64 MB for voxel data
+			oneNodeSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 		}
 	}
 	void FrameData::Cleanup(VkCommandPool commandPool) {
@@ -210,24 +165,13 @@ namespace my_vulkan
 			vkDestroySemaphore(logicalDevice, imageAvailable[i], nullptr);
 			vkDestroySemaphore(logicalDevice, renderFinished[i], nullptr);
 			vkDestroyFence(logicalDevice, inFlight[i], nullptr);
-			vkDestroyImageView(logicalDevice, computeOutput[i], nullptr);
-			vkDestroyImage(logicalDevice, computeOutputImage[i], nullptr);
-			vkFreeMemory(logicalDevice, computeOutputImageMemory[i], nullptr);
 			vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffers[i]);
 			uniformBuffers[i].Cleanup(logicalDevice);
 			chunkSSBO[i].Cleanup(logicalDevice);
 			voxelSSBO[i].Cleanup(logicalDevice);
 			oneNodeSSBO[i].Cleanup(logicalDevice);
+			computeOutputImage[i].Cleanup(logicalDevice);
+			beamOutputImage[i].Cleanup(logicalDevice);
 		}
-
-		// Clear all vectors to prevent stale handles
-		imageAvailable.clear();
-		renderFinished.clear();
-		inFlight.clear();
-		commandBuffers.clear();
-		computeOutput.clear();
-		computeOutputImage.clear();
-		computeOutputImageMemory.clear();
-		descriptor.clear();
 	}
 }
