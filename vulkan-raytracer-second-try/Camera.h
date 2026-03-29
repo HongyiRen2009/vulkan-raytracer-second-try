@@ -10,7 +10,7 @@ struct Frustum {
 
 class Camera {
 public:
-    glm::vec3 position{ 2000.0f, 150.0f, 0.0f };
+    glm::vec3 position{ 0.0f, 150.0f, 0.0f };
     // Calculated dynamically, use pitch and yaw to change camera starting rotation
     glm::vec3 front{ 0.0f, 0.0f, 1.0f };
     glm::vec3 right{ 1.0f, 0.0f, 0.0f };

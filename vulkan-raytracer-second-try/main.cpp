@@ -14,6 +14,7 @@ ChunkManager chunkManager;
 unsigned int seed = 42;
 ivec2 lastCameraChunkPos = ivec2(0);
 vec2 lastCameraLoadPos = vec2(0);
+bool initalizedFirstChunks = false;
 
 // FPS Counter variables
 double lastFrameTime = 0.0;
@@ -72,10 +73,11 @@ void updateFPSCounter() {
 void checkForChunkUpdates() {
 	ivec2 cameraChunkPos = ivec2(floor(camera->position.x / Chunk::CHUNK_SIZE), floor(camera->position.z / Chunk::CHUNK_SIZE));
 	vec2 cameraLoadPos = vec2(camera->position.x, camera->position.z);
-	if (cameraChunkPos != lastCameraChunkPos && distance(cameraLoadPos, lastCameraLoadPos) > Chunk::CHUNK_SIZE * 1.5) {
+	if (!initalizedFirstChunks||(cameraChunkPos != lastCameraChunkPos && distance(cameraLoadPos, lastCameraLoadPos) > Chunk::CHUNK_SIZE * 1.5)) {
 		chunkManager.requestChunkGeneration(ivec3(cameraChunkPos.x, 0, cameraChunkPos.y));
 		lastCameraChunkPos = cameraChunkPos;
 		lastCameraLoadPos = cameraLoadPos;
+		initalizedFirstChunks = true;
 	}
 }
 void updateChunkSSBO() {

@@ -23,6 +23,7 @@ struct TempNode {
     uint32_t blockId;
 	uint32_t childIndices[64];
 	uint16_t childCount;
+    uint8_t size;
 };
 
 struct Node {
@@ -33,6 +34,7 @@ struct Node {
 class Chunk {
 public:
     vector<Node> nodePool;
+    vector<unsigned int> oneNodePool;
     static constexpr unsigned int CHUNK_SIZE = 64;
 	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * sizeof(unsigned int); //Currently oversized
     unsigned int hashTableSlot;
@@ -42,7 +44,8 @@ public:
     void generateTerrain();
     ~Chunk();
     bool isDirty = false;
-    unsigned int gpuSlot;
+    unsigned int gpuSlot = UINT32_MAX;
+	unsigned int oneNodeSlot = UINT32_MAX;
     unsigned int getBlock(int x, int y, int z);
     void setBlock(int x, int y, int z, unsigned int newBlock);
     static bool isInteractable(unsigned int blockId);

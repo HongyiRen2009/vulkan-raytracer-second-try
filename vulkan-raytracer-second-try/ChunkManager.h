@@ -41,6 +41,9 @@ private:
 	static inline dp::thread_pool<> threadPool{ 4 };
 	unsigned int currentChunkIndex = 0;
 	std::atomic<int> pendingChunkGenerations = 0;
+	std::mutex pendingGenMutex;
+	std::condition_variable pendingGenCV;
+
 	unordered_set<string> loadedChunkPositions;
 	void unloadChunk(int index);
 	void loadChunks(vector<ivec3> spawnPositions);
@@ -54,6 +57,5 @@ private:
 	void chunkGenerationWorker();
 	void generateChunksAroundCamera(ivec3 cameraChunkPos);
 	FreeList chunkFreeList;
-
-
+	FreeList oneNodeFreeList;
 };

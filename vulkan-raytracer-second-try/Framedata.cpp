@@ -197,10 +197,12 @@ namespace my_vulkan
 		uniformBuffers.resize(numFrames);
 		chunkSSBO.resize(numFrames);
 		voxelSSBO.resize(numFrames);
+		oneNodeSSBO.resize(numFrames);
 		for (int i = 0;i < numFrames;i++) {
 			uniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ComputeUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 			chunkSSBO[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ChunkData) * 10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 256 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT); // 256 MB for voxel data
+			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT); // 256 MB for voxel data
+			oneNodeSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64*1024*1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 		}
 	}
 	void FrameData::Cleanup(VkCommandPool commandPool) {
@@ -215,6 +217,7 @@ namespace my_vulkan
 			uniformBuffers[i].Cleanup(logicalDevice);
 			chunkSSBO[i].Cleanup(logicalDevice);
 			voxelSSBO[i].Cleanup(logicalDevice);
+			oneNodeSSBO[i].Cleanup(logicalDevice);
 		}
 
 		// Clear all vectors to prevent stale handles

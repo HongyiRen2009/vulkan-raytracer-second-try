@@ -21,6 +21,7 @@ namespace my_vulkan
 		vector<BufferAndMemory> uniformBuffers;
 		vector <BufferAndMemory> chunkSSBO;
 		vector <BufferAndMemory> voxelSSBO;
+		vector<BufferAndMemory> oneNodeSSBO;
 		FrameData();
 		~FrameData();
 		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent);

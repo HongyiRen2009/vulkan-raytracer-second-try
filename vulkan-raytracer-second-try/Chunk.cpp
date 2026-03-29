@@ -374,7 +374,7 @@ void Chunk::generateTerrain() {
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
 			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.z * CHUNK_SIZE);
-			unsigned int terrainHeight = generateTerrainHeight(globalPosition.x, globalPosition.y);
+			unsigned int terrainHeight = columnHeights[i][k];
 
 			int localTerrainHeight = (int)terrainHeight - (int)(chunkPosition.y * CHUNK_SIZE);
 
@@ -395,7 +395,8 @@ TempNode Chunk::CreateNode(int x, int y, int z, int size) {
 		.mask = 0,
 		.blockId = 0,
 		.childIndices = {},
-		.childCount = 0
+		.childCount = 0,
+		.size = (uint8_t)size
 	};
 
 	if (size <= 1) {
@@ -413,6 +414,9 @@ TempNode Chunk::CreateNode(int x, int y, int z, int size) {
 	}
 
 	int childCount = 0;
+	if (size == 4) {
+		node.childIndices[0] = (uint32_t)oneNodePool.size();
+	}
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++) {
 			for (int k = 0; k < 4; k++) {
@@ -426,10 +430,14 @@ TempNode Chunk::CreateNode(int x, int y, int z, int size) {
 				if (childNode.mask == 0) {
 					continue;
 				}
+				node.mask |= (1ull << (i * 16 + j * 4 + k));
 
+				if (size == 4) {
+					oneNodePool.push_back(childNode.blockId);
+					continue;
+				}
 				childNodePool.push_back(childNode);
 				node.childIndices[childCount++] = (uint32_t)(childNodePool.size() - 1);
-				node.mask |= (1ull << (i * 16 + j * 4 + k));
 			}
 		}
 	}
@@ -453,25 +461,35 @@ void Chunk::BuildTree(int x, int y, int z, int size) {
 	TempNode rootNode = CreateNode(x, y, z, size);
 	queue<pair<TempNode*, uint32_t>> nodeQueue;
 	nodeQueue.push({ &rootNode, UINT32_MAX });
+
 	while (!nodeQueue.empty()) {
 		auto [currentNode, parentIdx] = nodeQueue.front();
 		nodeQueue.pop();
+
 		uint32_t currentIdx = (uint32_t)nodePool.size();
 		if (parentIdx != UINT32_MAX) {
 			nodePool[parentIdx].firstChildIndex = currentIdx;
 		}
+
 		Node node = {
 			.mask = currentNode->mask,
 			.blockId = currentNode->blockId,
 			.firstChildIndex = 0
 		};
 		nodePool.push_back(node);
+
+		if (currentNode->size == 4) {
+			nodePool[currentIdx].firstChildIndex = currentNode->childIndices[0];
+			continue;
+		}
+
 		if (currentNode->mask != 0 && currentNode->blockId == 0) {
-			for (int i = 0;i < currentNode->childCount;i++) {
-				nodeQueue.push({ &childNodePool[currentNode->childIndices[i]], i == 0 ? (uint32_t)currentIdx : UINT32_MAX });
+			for (int i = 0; i < currentNode->childCount; i++) {
+				nodeQueue.push({ &childNodePool[currentNode->childIndices[i]], i == 0 ? currentIdx : UINT32_MAX });
 			}
 		}
 	}
+
 	childNodePool.clear();
 }
 Chunk::~Chunk() {

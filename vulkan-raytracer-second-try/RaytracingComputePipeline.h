@@ -22,6 +22,7 @@ namespace my_vulkan
 		glm::vec3 chunkPos;
 		uint32_t gpuSlot;
 		uint32_t valid;
+		uint32_t oneNodeSlot;
 	};
 	class RaytracingComputePipeline : public ComputePipeline
 	{
@@ -29,7 +30,7 @@ namespace my_vulkan
 	public:
 		RaytracingComputePipeline();
 		~RaytracingComputePipeline();
-		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VulkanTexture *blockTextureArray);
+		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray);
 	protected:
 		virtual VkDescriptorSetLayout CreateDescriptorSetLayout(VulkanCore& core) override;
 	};

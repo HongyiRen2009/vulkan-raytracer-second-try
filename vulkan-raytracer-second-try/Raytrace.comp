@@ -13,6 +13,7 @@ struct ChunkData{
     vec3 chunkPos;
     uint gpuSlot;
     uint valid;
+    uint oneNodeSlot;
 };
 struct Node {
     uint64_t mask;
@@ -50,8 +51,12 @@ layout(std430, binding=3) buffer SVOBuffer
 {
     Node nodes[];
 } voxelSSBO;
-layout(binding=4) uniform sampler2DArray voxelTextureArray;
+layout (binding = 4) buffer OneNodeBuffer{
+    uint32_t nodeIds[];
+} oneNodeSSBO;
+layout(binding=5) uniform sampler2DArray voxelTextureArray;
 const uint treeMaxDepth = 3;
+const uint32_t UINT32_MAX = 0xffffffffu;
 AncestorStack ancestorstack;
 struct RaytraceResult {
     uint voxelValue;
@@ -103,10 +108,9 @@ bool isPosInNode(ivec3 pos,ivec3 nodePos, uint depth){
     uint nodeSize = depthToStepSize(depth);
     return all(greaterThanEqual(pos, nodePos)) && all(lessThan(pos, nodePos + ivec3(int(nodeSize))));
 }
-traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uint startDepth) {
+traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uint oneNodeBaseIdx, uint startDepth) {
     Node currentNode = voxelSSBO.nodes[nodeIdx];
 
-    // Traverse from this node's depth down to leaves
     for (int level = int(startDepth) - 1; level >= 0; --level) {
         if (currentNode.mask == 0ul) return traverseResult(0u, uint(level));
         if (currentNode.blockId != 0u) return traverseResult(currentNode.blockId, uint(level + 1));
@@ -120,12 +124,15 @@ traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uin
         uint64_t masked = currentNode.mask & (bit - 1ul);
         uint childOffset = bitCount(uint(masked)) + bitCount(uint(masked >> 32));
 
-        // firstChildIndex is chunk-local; convert to global SSBO index using chunk base
-        uint childIdx = chunkBaseIdx + currentNode.firstChildIndex + childOffset;
+        if (level == 0) {
+            if (oneNodeBaseIdx == UINT32_MAX) return traverseResult(0u, 0u);
+            uint leafIdx = oneNodeBaseIdx + currentNode.firstChildIndex + childOffset;
+            return traverseResult(oneNodeSSBO.nodeIds[leafIdx], 0u);
+        }
 
+        uint childIdx = chunkBaseIdx + currentNode.firstChildIndex + childOffset;
         currentNode = voxelSSBO.nodes[childIdx];
 
-        // Cache this child node in LOCAL chunk coordinates (not world)
         ivec3 nodeOrigin = (localPos >> (level * 2)) << (level * 2);
         if (ancestorstack.stackCount < 8u) {
             ancestorstack.nodes[ancestorstack.stackCount] = nodeInfo(nodeOrigin, uint(level), childIdx);
@@ -135,7 +142,6 @@ traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uin
 
     return traverseResult(currentNode.blockId, 0u);
 }
-
 traverseResult getVoxel(uint chunkIndex, ivec3 localPos) {
     if (localPos.x < 0 || localPos.x >= int(ubo.CHUNK_SIZE) ||
         localPos.y < 0 || localPos.y >= int(ubo.CHUNK_SIZE) ||
@@ -144,34 +150,33 @@ traverseResult getVoxel(uint chunkIndex, ivec3 localPos) {
     }
 
     ChunkData cd = chunkSSBO.chunkData[chunkIndex];
+    if (cd.gpuSlot == UINT32_MAX) return traverseResult(0u, 0u);
+
     uint rootNodeIdx = cd.gpuSlot;
+    uint oneNodeRootIdx = cd.oneNodeSlot;
     uint rootDepth = uint(log2(ubo.CHUNK_SIZE) / 2);
 
-    // Reset cache when chunk changes
     if (ancestorstack.lastChunkIndex != chunkIndex) {
         ancestorstack.stackCount = 0u;
         ancestorstack.lastChunkIndex = chunkIndex;
     }
 
-    // Initialize root in LOCAL space
     if (ancestorstack.stackCount == 0u) {
         ancestorstack.nodes[0] = nodeInfo(ivec3(0), rootDepth, rootNodeIdx);
         ancestorstack.stackCount = 1u;
     }
 
-    // Pop until we find an ancestor containing localPos
     while (ancestorstack.stackCount > 0u) {
         nodeInfo current = ancestorstack.nodes[ancestorstack.stackCount - 1u];
         if (isPosInNode(localPos, current.nodePos, current.depth)) {
-            return traverseTree(current.nodeIndex, localPos, rootNodeIdx, current.depth);
+            return traverseTree(current.nodeIndex, localPos, rootNodeIdx, oneNodeRootIdx, current.depth);
         }
         ancestorstack.stackCount--;
     }
 
-    // Fallback if something dumb happens
     ancestorstack.nodes[0] = nodeInfo(ivec3(0), rootDepth, rootNodeIdx);
     ancestorstack.stackCount = 1u;
-    return traverseTree(rootNodeIdx, localPos, rootNodeIdx, rootDepth);
+    return traverseTree(rootNodeIdx, localPos, rootNodeIdx, oneNodeRootIdx, rootDepth);
 }
 vec2 getUVForFace(vec3 hitPos, vec3 normal) {
     vec3 localHit = hitPos - floor(hitPos);
@@ -230,15 +235,19 @@ int getAABBEntryAxis(vec3 rayOrigin, vec3 rayDir, vec3 invDir) {
 void rebuildDDAForStepSize(
     vec3 rayOrigin,
     vec3 rayDir,
-    float tCurrent,      
+    float tCurrent,
     uint stepSize,
     out ivec3 voxelPos,
     out vec3 tMax,
     out vec3 tDelta
 ) {
-
     float s = float(stepSize);
-    vec3 p = rayOrigin + rayDir * tCurrent + sign(rayDir) * (1e-4);
+    vec3 p = rayOrigin + rayDir * tCurrent;
+
+    // scale epsilon based on position
+    float maxAbsP = max(max(abs(p.x), abs(p.y)), abs(p.z));
+    float relEps = max(1e-4,maxAbsP * 1.1920929e-7);          // scaled float epsilon
+    p += sign(rayDir) * relEps;
 
     vec3 cellMin = floor(p / s) * s;
     vec3 cellMax = cellMin + vec3(s);

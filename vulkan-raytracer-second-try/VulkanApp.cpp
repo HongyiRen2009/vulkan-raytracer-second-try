@@ -20,7 +20,7 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,&blockTextureArray);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
 	}
 	ChunkData emptySlot = { .chunkPos = glm::vec3(0.0f), .gpuSlot = 0, .valid = 0 };
 	for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
@@ -58,6 +58,11 @@ void VulkanApp::CreateDescriptorPool() {
 	.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 	.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
 	},
+	{
+	.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+	.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+	
+},
 	{
 		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
@@ -177,31 +182,46 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 }
 void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 	const vector<unique_ptr<Chunk>>& chunks = chunkManager->GetChunks();
-
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
 
 	for (auto& chunk : chunks) {
 		if (!chunk->isDirty) continue;
+
+		const bool hasLeafArray = !chunk->oneNodePool.empty();
+		if (chunk->gpuSlot == UINT32_MAX) continue;
+		if (hasLeafArray && chunk->oneNodeSlot == UINT32_MAX) continue;
 
 		uint32_t slotIndex = chunk->hashTableSlot;
 
 		ChunkData data = {
 			.chunkPos = glm::vec3(chunk->chunkPosition),
 			.gpuSlot = chunk->gpuSlot,
-			.valid = 1
+			.valid = 1,
+			.oneNodeSlot = hasLeafArray ? chunk->oneNodeSlot : 0u
 		};
 
 		for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
 			frameData.chunkSSBO[frameIdx].AddData(logicalDevice, &data, sizeof(ChunkData), slotIndex * sizeof(ChunkData));
+
 			if (!chunk->nodePool.empty()) {
 				frameData.voxelSSBO[frameIdx].AddData(
 					logicalDevice,
 					chunk->nodePool.data(),
-					chunk->nodePool.size()*sizeof(Node),
+					chunk->nodePool.size() * sizeof(Node),
 					chunk->gpuSlot * sizeof(Node)
 				);
 			}
+
+			if (hasLeafArray) {
+				frameData.oneNodeSSBO[frameIdx].AddData(
+					logicalDevice,
+					chunk->oneNodePool.data(),
+					chunk->oneNodePool.size() * sizeof(unsigned int),
+					chunk->oneNodeSlot * sizeof(unsigned int)
+				);
+			}
 		}
+
 		chunk->isDirty = false;
 	}
 }
@@ -254,7 +274,7 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer,&blockTextureArray);
+		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutput[i], frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
 	}
 
 }
