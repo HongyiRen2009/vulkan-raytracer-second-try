@@ -127,6 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="BlockDataManager.cpp" />
     <ClCompile Include="BufferAndMemory.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="Chunk.cpp" />
@@ -150,7 +151,6 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="Chunk.h" />
     <ClInclude Include="ChunkManager.h" />
-    <ClInclude Include="ChunkTypes.h" />
     <ClInclude Include="ComputePipeline.h" />
     <ClInclude Include="FrameData.h" />
     <ClInclude Include="FreeList.h" />
@@ -168,6 +168,9 @@
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslc.exe "%(FullPath)" -o "%(FullPath).spv"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FullPath)%(Extension).spv</Outputs>
     </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="BlockDataManager.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

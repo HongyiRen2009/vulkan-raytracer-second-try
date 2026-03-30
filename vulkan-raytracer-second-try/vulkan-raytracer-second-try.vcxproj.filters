@@ -69,6 +69,9 @@
     <ClCompile Include="ImageAndMemory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="BlockDataManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="VulkanCore.h">
@@ -110,14 +113,16 @@
     <ClInclude Include="VulkanTexture.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ChunkTypes.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="FreeList.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="Raytrace.comp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="BlockDataManager.h">
+      <Filter>Header Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

@@ -88,12 +88,11 @@ void updateChunkSSBO() {
 }
 
 int main() {
-	VulkanPhysicalDevices::useIntegratedGPU = true;
+	VulkanPhysicalDevices::useIntegratedGPU = false;
 	initWindow();
 	camera = new Camera(window);
 	camera->updateAspectRatio(static_cast<float>(windowWidth) / static_cast<float>(windowHeight));
 	vulkanApp.Init("Vulkan App", window, camera);
-	Chunk::populateBlockDataArray();
 	chunkManager.init(seed);
 	vector<uint32_t> _;
 	vulkanApp.UpdateChunkSSBO(&chunkManager);

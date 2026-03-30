@@ -1,5 +1,7 @@
 #include "RaytracingComputePipeline.h"
-
+#include <glm/glm.hpp>
+#include "Chunk.h"
+#include "BlockDataManager.h"
 namespace my_vulkan
 {
 
@@ -19,6 +21,48 @@ namespace my_vulkan
 				}
 			}
 			RaytracingComputePipeline::twoWideRegionMasks[i] = mask;
+		}
+		glm::ivec3 directions[8];
+		for (int i = -1;i <= 1;i += 2) {
+			for(int j=-1;j<=1;j+=2){
+				for(int k=-1;k<=1;k+=2){
+					directions[((i+1)/2)*4 + ((j+1)/2)*2 + ((k+1)/2)] = glm::ivec3(i,j,k);
+				}
+			}
+		}
+
+		for (int i = 0; i < 512; i++) {
+			uint64_t mask = 0;
+
+			int directionIndex = i / 64;
+			int positionIndex = i % 64;
+
+			int posX = positionIndex / 16;
+			int posY = (positionIndex / 4) % 4;
+			int posZ = positionIndex % 4;
+
+			glm::ivec3 dir = directions[directionIndex];
+			for (int x = posX; x >= 0 && x < 4; x += dir.x) {
+				for (int y = posY; y >= 0 && y < 4; y += dir.y) {
+					for (int z = posZ; z >= 0 && z < 4; z += dir.z) {
+						int bitIndex = x * 16 + y * 4 + z;
+						mask |= (1ULL << bitIndex);
+					}
+				}
+			}
+
+			directionMasks[i] = mask;
+		}
+		uniformData.CHUNK_SIZE = Chunk::CHUNK_SIZE;
+		BlockDataManager::populateBlockDataArray();
+		memcpy(uniformData.blockDataArray, BlockDataManager::blockDataArray, sizeof(BlockDataManager::blockDataArray));
+		for (uint32_t i = 0; i < 27; i++) {
+			uniformData.twoWideRegionMasks[i].value = twoWideRegionMasks[i];
+			uniformData.twoWideRegionMasks[i].pad = 0ull;
+		}
+		for (uint32_t i = 0; i < 512; i++) {
+			uniformData.directionMasks[i].value = directionMasks[i];
+			uniformData.directionMasks[i].pad = 0ull;
 		}
 	}
 	RaytracingComputePipeline::~RaytracingComputePipeline() {

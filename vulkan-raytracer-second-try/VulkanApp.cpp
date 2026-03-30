@@ -107,28 +107,22 @@ void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
 		.subresourceRange = imageRange,
 	};
 
-	ComputeUniformData uniformData{
+	ComputeUniformUpdateData uniformData{
 		.view = camera->getViewMatrix(),
 		.proj = camera->getProjectionMatrix(),
 		.cameraPos = camera->position,
-		.CHUNK_SIZE = Chunk::CHUNK_SIZE,
-		.blockDataArray = {},
-		.twoWideRegionMasks ={},
 		.allChunksMin = ChunkManager::allChunksMin,
 		.allChunksMax = ChunkManager::allChunksMax,
 
 	};
 	ComputePushConstants pushConstants{
 		.beamResolutionDivisor = FrameData::beamResolutionDivider,
-		.computeToggle = (glfwGetKey(camera->window, GLFW_KEY_V) != GLFW_PRESS) ? 1u : 0u,
+		.computeToggle = (glfwGetKey(camera->window, GLFW_KEY_V) == GLFW_PRESS) ? 1u : 0u,
 		.isBeam = 1u
 	};
-	memcpy(uniformData.blockDataArray, Chunk::blockDataArray, sizeof(Chunk::blockDataArray));
-	for (uint32_t i = 0; i < 27; i++) {
-		uniformData.twoWideRegionMasks[i].value = rtPipeline.twoWideRegionMasks[i];
-		uniformData.twoWideRegionMasks[i].pad = 0ull;
-	}
-	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &uniformData, sizeof(ComputeUniformData));
+	rtPipeline.updateUniformData(uniformData);
+
+	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), rtPipeline.GetUniformData(), sizeof(ComputeUniformData));
 
 	BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
 

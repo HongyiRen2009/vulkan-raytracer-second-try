@@ -8,7 +8,6 @@
 #include <unordered_map>
 #include <memory>
 #include <functional> 
-#include "ChunkTypes.h"
 using namespace glm;
 using namespace std;
 
@@ -48,11 +47,9 @@ public:
 	unsigned int oneNodeSlot = UINT32_MAX;
     unsigned int getBlock(int x, int y, int z);
     void setBlock(int x, int y, int z, unsigned int newBlock);
-    static bool isInteractable(unsigned int blockId);
-    static unsigned int maxBlockId();
+
     unsigned int blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE]{};
-	static ChunkTypes::blockData blockDataArray[256];
-    static void populateBlockDataArray();
+
 
 private:
     unsigned int generateTerrainHeight(int x, int z);

@@ -46,6 +46,7 @@ layout(std140, binding = 2) uniform UniformBufferObject
     uint CHUNK_SIZE;
     blockData blockDataArray[256];
     uint64_t twoWideRegionMasks[27];
+    uint64_t directionMasks[512];
     ivec3 allChunksMin;
     ivec3 allChunksMax;
 } ubo;
@@ -114,23 +115,36 @@ bool isPosInNode(ivec3 pos,ivec3 nodePos, uint depth){
     uint nodeSize = depthToStepSize(depth);
     return all(greaterThanEqual(pos, nodePos)) && all(lessThan(pos, nodePos + ivec3(int(nodeSize))));
 }
-traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uint oneNodeBaseIdx, uint startDepth,float tCurrent) {
+traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uint oneNodeBaseIdx, uint startDepth,float tCurrent,vec3 rayDir) {
     Node currentNode = voxelSSBO.nodes[nodeIdx];
-
+        ivec3 voxelDir = ivec3(sign(rayDir.x + 1e-6), sign(rayDir.y + 1e-6), sign(rayDir.z + 1e-6));
+    uint dirIndex = (uint((voxelDir.x + 1) >> 1) << 2) |
+                    (uint((voxelDir.y + 1) >> 1) << 1) |
+                     uint((voxelDir.z + 1) >> 1);
+    uint dirBase = dirIndex << 6; // *64
     for (int level = int(startDepth) - 1; level >= 0; --level) {
         if (currentNode.mask == 0ul) return traverseResult(0u, uint(level));
         if (currentNode.blockId != 0u) return traverseResult(currentNode.blockId, uint(level + 1));
-        
+
         if(level==0&&pushConstants.isBeam==1) {
-            uvec3 voxel = uvec3(localPos) & uvec3(3u);
-            uvec3 regionMin = voxel & uvec3(~1u);
+            uvec3 leafLocalPos = uvec3(localPos) & uvec3(3u);
+            uvec3 regionMin = leafLocalPos & uvec3(~1u);
             int maskIndex = int(regionMin.x) + int(regionMin.y) * 3 + int(regionMin.z) * 9;
             uint64_t regionMask = ubo.twoWideRegionMasks[maskIndex];
             if((currentNode.mask & regionMask) != 0ul||tCurrent>400) {
                 return traverseResult(1u, 0u);
             }
         }
-        
+        if(pushConstants.computeToggle==0u&&level>0) {
+
+        uvec3 voxelLocalPos = (uvec3(localPos) >> uint(level * 2)) & uvec3(3u);
+
+        uint posIndex = voxelLocalPos.x * 16u + voxelLocalPos.y * 4u + voxelLocalPos.z;
+        uint64_t directionMask = ubo.directionMasks[dirBase + posIndex];
+        if((currentNode.mask&directionMask)==0u) {
+            return traverseResult(0u, uint(level));
+        }
+        }
         uvec3 child = (uvec3(localPos) >> uint(level * 2)) & uvec3(3u);
         uint bitPos = child.x * 16u + child.y * 4u + child.z;
         uint64_t bit = (1ul << bitPos);
@@ -158,7 +172,7 @@ traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uin
 
     return traverseResult(currentNode.blockId, 0u);
 }
-traverseResult getVoxel(uint chunkIndex, ivec3 localPos,float tCurrent) {
+traverseResult getVoxel(uint chunkIndex, ivec3 localPos,float tCurrent,vec3 rayDir) {
     if (localPos.x < 0 || localPos.x >= int(ubo.CHUNK_SIZE) ||
         localPos.y < 0 || localPos.y >= int(ubo.CHUNK_SIZE) ||
         localPos.z < 0 || localPos.z >= int(ubo.CHUNK_SIZE)) {
@@ -185,14 +199,14 @@ traverseResult getVoxel(uint chunkIndex, ivec3 localPos,float tCurrent) {
     while (ancestorstack.stackCount > 0u) {
         nodeInfo current = ancestorstack.nodes[ancestorstack.stackCount - 1u];
         if (isPosInNode(localPos, current.nodePos, current.depth)) {
-            return traverseTree(current.nodeIndex, localPos, rootNodeIdx, oneNodeRootIdx, current.depth,tCurrent);
+            return traverseTree(current.nodeIndex, localPos, rootNodeIdx, oneNodeRootIdx, current.depth,tCurrent,rayDir);
         }
         ancestorstack.stackCount--;
     }
 
     ancestorstack.nodes[0] = nodeInfo(ivec3(0), rootDepth, rootNodeIdx);
     ancestorstack.stackCount = 1u;
-    return traverseTree(rootNodeIdx, localPos, rootNodeIdx, oneNodeRootIdx, rootDepth,tCurrent);
+    return traverseTree(rootNodeIdx, localPos, rootNodeIdx, oneNodeRootIdx, rootDepth,tCurrent,rayDir);
 }
 vec2 getUVForFace(vec3 hitPos, vec3 normal) {
     vec3 localHit = hitPos - floor(hitPos);
@@ -317,7 +331,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir,float startT) {
         int chunkIndex = findChunk(chunkPos);
         if (chunkIndex < 0) break;
 
-        traverseResult res = getVoxel(chunkIndex, localPos,tCurrent);
+        traverseResult res = getVoxel(chunkIndex, localPos,tCurrent,rayDir);
         uint newStepSize = depthToStepSize(res.depth);
         if (newStepSize != stepSize) {
             stepSize = newStepSize;

@@ -92,157 +92,12 @@ private:
 		return res;
 	}
 };
-enum BlockType {
-	AIR = 0,
-	GRASS = 1,
-	DIRT = 2,
-	STONE = 3,
-	WOOD = 4,
-	LEAF = 5,
-	WATER = 6
-
-};
-struct blockUV {
-	unsigned int blockBottomLefts[6];
-	bool transparent = false;
-	bool interactable = true;
-};
-blockUV grass = {
-	{
-4,
-4,
-4,
-4,
-		0, //Top
-		1
-	}
-};
-blockUV dirt = {
-{
-		1,
-		1,
-		1,
-		1,
-		1,
-		1,
-}
-};
-blockUV stone = {
-{
-		3,
-		3,
-		3,
-		3,
-		3,
-		3,
-
-}
-};
-blockUV wood = {
-{
-2,
-2,
-2,
-2,
-5,5
-}
-};
-blockUV leaf = {
-{
-6,
-6,
-6,
-6,
-6,
-6,
-
-
-},
-true
-};
-blockUV water = {
-{
-7,
-7,
-7,
-7,
-7,
-7,
-},
-true,
-false
-};
-blockUV sand = {
-{
-		8,
-		8,
-		8,
-		8,
-		8,
-		8,
-
-}
-};
-blockUV gravel = {
-{
-		9,
-		9,
-		9,
-		9,
-		9,
-		9,
-
-}
-};
-blockUV snow = {
-{
-		10,
-		10,
-		10,
-		10,
-		10,
-		10,
-}
-};
-blockUV blockUVs[9] = {
-	grass,dirt,stone,wood,leaf,water,sand,gravel,snow
-};
-ChunkTypes::blockData Chunk::blockDataArray[256];
-// --- Chunk methods ---
-int placed = 0;
-int missing = 0;
 Chunk::Chunk(unsigned int seed, ivec3 spawnPosition)
 	: perlinNoise(new PerlinNoise(seed))
 {
 	chunkPosition = spawnPosition;
 }
-unsigned int Chunk::maxBlockId() {
-	return sizeof(blockUVs) / sizeof(blockUVs[0]);
-}
-void Chunk::populateBlockDataArray() {
-	for (int i = 0; i < 256; ++i) {
-		blockDataArray[i] = {};
-	}
 
-	for (unsigned int i = 0; i < maxBlockId(); ++i) {
-		ChunkTypes::blockData data{};
-		data.face0123 = glm::uvec4(
-			blockUVs[i].blockBottomLefts[0],
-			blockUVs[i].blockBottomLefts[1],
-			blockUVs[i].blockBottomLefts[2],
-			blockUVs[i].blockBottomLefts[3]
-		);
-		data.face45pad = glm::uvec4(
-			blockUVs[i].blockBottomLefts[4],
-			blockUVs[i].blockBottomLefts[5],
-			0u,
-			0u
-		);
-
-		// voxel ID 0 = air, so block i maps to ID i+1
-		blockDataArray[i + 1] = data;
-	}
-}
 unsigned int  Chunk::generateTerrainHeight(int x, int z) {
 	int maxheight = 200;
 	int minheight = 20;
@@ -255,11 +110,7 @@ unsigned int  Chunk::generateTerrainHeight(int x, int z) {
 	terrainHeight = glm::clamp(terrainHeight, static_cast<unsigned int>(minheight), static_cast<unsigned int>(maxheight));
 	return terrainHeight;
 }
-bool Chunk::isInteractable(unsigned int blockId) {
-	if (blockId == 0) return false; // Air is not interactable
-	if (blockId > sizeof(blockUVs) / sizeof(blockUVs[0])) return false; // Invalid block ID
-	return blockUVs[blockId - 1].interactable;
-}
+
 bool Chunk::generateTreeValid(int x, int y, int z, int layerSize) {
 	for (int i = 1;i <= 5;i++) {
 		if (x < 0 || x >= CHUNK_SIZE || y + i < 0 || y + i >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE || getBlock(x, y + i, z) != 0) {
@@ -493,4 +344,5 @@ void Chunk::BuildTree(int x, int y, int z, int size) {
 	childNodePool.clear();
 }
 Chunk::~Chunk() {
+	delete perlinNoise;
 }
