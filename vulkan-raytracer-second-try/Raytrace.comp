@@ -116,6 +116,9 @@ bool isPosInNode(ivec3 pos,ivec3 nodePos, uint depth){
     return all(greaterThanEqual(pos, nodePos)) && all(lessThan(pos, nodePos + ivec3(int(nodeSize))));
 }
 traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uint oneNodeBaseIdx, uint startDepth,float tCurrent,vec3 rayDir) {
+    if(pushConstants.isBeam==1&&tCurrent>400) {
+        return traverseResult(1u, 0u);
+    }
     Node currentNode = voxelSSBO.nodes[nodeIdx];
         ivec3 voxelDir = ivec3(sign(rayDir.x + 1e-6), sign(rayDir.y + 1e-6), sign(rayDir.z + 1e-6));
     uint dirIndex = (uint((voxelDir.x + 1) >> 1) << 2) |
@@ -126,16 +129,9 @@ traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uin
         if (currentNode.mask == 0ul) return traverseResult(0u, uint(level));
         if (currentNode.blockId != 0u) return traverseResult(currentNode.blockId, uint(level + 1));
 
-        if(level==0&&pushConstants.isBeam==1) {
-            uvec3 leafLocalPos = uvec3(localPos) & uvec3(3u);
-            uvec3 regionMin = leafLocalPos & uvec3(~1u);
-            int maskIndex = int(regionMin.x) + int(regionMin.y) * 3 + int(regionMin.z) * 9;
-            uint64_t regionMask = ubo.twoWideRegionMasks[maskIndex];
-            if((currentNode.mask & regionMask) != 0ul||tCurrent>400) {
-                return traverseResult(1u, 0u);
-            }
-        }
-        if(pushConstants.computeToggle==0u&&level>0) {
+
+
+        if(level>0) {
 
         uvec3 voxelLocalPos = (uvec3(localPos) >> uint(level * 2)) & uvec3(3u);
 
@@ -394,7 +390,7 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index to force reset on f
 
     vec2 uv = vec2(pixel) / vec2(size);
     if(pushConstants.isBeam==1){
-        uv = (vec2(pixel) + 0.5) / vec2(size) * vec2(pushConstants.beamResolutionDivisor);
+        uv =vec2(pixel) / vec2(size) * vec2(pushConstants.beamResolutionDivisor);
     }
     vec2 ndc = uv * 2.0 - 1.0;
     ndc.y *= -1.0;
@@ -413,26 +409,34 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index to force reset on f
         if(result.voxelValue != 0u) {
             imageStore(beamImage, pixel, vec4(result.tHit, 0.0, 0.0, 1.0));
         } else {
-            imageStore(beamImage, pixel, vec4(-1.0, 0.0, 0.0, 1.0));
+            imageStore(beamImage, pixel, vec4(0.0, 0.0, 0.0, 1.0));
         }
         return;
     }
     ivec2 beamPixel = pixel / int(pushConstants.beamResolutionDivisor);
-    float beamT = imageLoad(beamImage, beamPixel).r;
-    if(beamT < 0.0) {
-        imageStore(img, pixel, vec4(1.0, 0.749, 0.0, 1.0));
-        return;
+    float cornerBeamTs[4] = {
+        imageLoad(beamImage, beamPixel).r,
+        imageLoad(beamImage, beamPixel + ivec2(1, 0)).r,
+        imageLoad(beamImage, beamPixel + ivec2(0, 1)).r,
+        imageLoad(beamImage, beamPixel + ivec2(1, 1)).r
+    };
+    float beamT = 9999.0;
+    for(int i=0;i<4;i++) {
+        if(cornerBeamTs[i]<beamT) {
+            beamT = cornerBeamTs[i];
+        }
     }
+
     float startT = (beamT >= 0.0) ? beamT-1.0 : 0.0;
     
     RaytraceResult result = raytrace(rayOrigin, rayDir, startT);
 
     if (result.voxelValue != 0u) {
-        vec3 normalizedNormal = normalize(result.normal);
+                vec3 normalizedNormal = normalize(result.normal);
         float brightness = dot(normalizedNormal, vec3(0.0, 1.0, 0.0)) * 0.4 + 0.6;
         vec4 litColor = vec4(result.color.rgb * brightness, result.color.a);
-        imageStore(img, pixel, litColor);
-    } else {
+            imageStore(img, pixel, litColor);
+        } else {
         imageStore(img, pixel, vec4(1.0, 0.749, 0.0, 1.0));
     }
 }

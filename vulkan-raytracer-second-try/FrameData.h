@@ -23,7 +23,7 @@ namespace my_vulkan
 		vector<BufferAndMemory> oneNodeSSBO;
 		vector<ImageAndMemory> computeOutputImage;
 		vector<ImageAndMemory> beamOutputImage;
- 		constexpr static int beamResolutionDivider =8;
+ 		constexpr static int beamResolutionDivider =4;
 		FrameData();
 		~FrameData();
 		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent);
