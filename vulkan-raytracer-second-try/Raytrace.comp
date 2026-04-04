@@ -270,10 +270,8 @@ void rebuildDDAForStepSize(
     float s = float(stepSize);
     vec3 p = rayOrigin + rayDir * tCurrent;
 
-    // scale epsilon based on position
-    float maxAbsP = max(max(abs(p.x), abs(p.y)), abs(p.z));
-    float relEps = max(1e-4,maxAbsP * 1.1920929e-7);          // scaled float epsilon
-    p += sign(rayDir) * relEps;
+
+    p += sign(rayDir) * 1e-3;
 
     vec3 cellMin = floor(p / s) * s;
     vec3 cellMax = cellMin + vec3(s);
@@ -334,7 +332,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir,float startT) {
             rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
             continue;
         }
-
+        
         if (res.voxelValue != 0u) {
             vec3 normal = vec3(0.0);
             if (lastStepAxis >= 0) {
@@ -389,6 +387,7 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index to force reset on f
         return;
 
     vec2 uv = vec2(pixel) / vec2(size);
+
     if(pushConstants.isBeam==1){
         uv =vec2(pixel) / vec2(size) * vec2(pushConstants.beamResolutionDivisor);
     }
