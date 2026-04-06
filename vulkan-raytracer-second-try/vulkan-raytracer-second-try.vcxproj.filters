@@ -72,6 +72,9 @@
     <ClCompile Include="BlockDataManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TAACompute.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="VulkanCore.h">
@@ -116,9 +119,13 @@
     <ClInclude Include="FreeList.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TAAComputePipeline.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="Raytrace.comp" />
+    <CustomBuild Include="TAACompute.comp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="BlockDataManager.h">

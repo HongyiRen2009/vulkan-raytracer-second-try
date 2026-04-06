@@ -4,24 +4,17 @@
 #include "BlockDataManager.h"
 namespace my_vulkan
 {
-
-	RaytracingComputePipeline::RaytracingComputePipeline() {
-		// Masks for a 2x2x2 cube in a 4x4x4 cube
-		for (int i = 0;i < 27;i++) {
-			uint64_t mask = 0;
-			int x = i % 3;
-			int y = (i / 3) % 3;
-			int z = i / 9;
-			for (int dx = 0; dx < 2; dx++) {
-				for (int dy = 0; dy < 2; dy++) {
-					for (int dz = 0; dz < 2; dz++) {
-						int bitIndex = ((z + dz) * 4 * 4) + ((y + dy) * 4) + (x + dx);
-						mask |= (1ULL << bitIndex);
-					}
-				}
-			}
-			RaytracingComputePipeline::twoWideRegionMasks[i] = mask;
+	float halton(int n, int base) {
+		float f = 1.0, r = 0.0;
+		while (n > 0) {
+			f = f / float(base);
+			r = r + f * float(n % base);
+			n = int(floor(float(n) / float(base)));
 		}
+		return r;
+	}
+	RaytracingComputePipeline::RaytracingComputePipeline() {
+		uint64_t directionMasks[512];
 		glm::ivec3 directions[8];
 		for (int i = -1;i <= 1;i += 2) {
 			for(int j=-1;j<=1;j+=2){
@@ -53,13 +46,13 @@ namespace my_vulkan
 
 			directionMasks[i] = mask;
 		}
+		
+		for (int i = 0; i < 64; i++) {
+			haltonSamples[i] = vec2(halton(i+2, 2), halton(i+2, 3));
+		}	
 		uniformData.CHUNK_SIZE = Chunk::CHUNK_SIZE;
 		BlockDataManager::populateBlockDataArray();
 		memcpy(uniformData.blockDataArray, BlockDataManager::blockDataArray, sizeof(BlockDataManager::blockDataArray));
-		for (uint32_t i = 0; i < 27; i++) {
-			uniformData.twoWideRegionMasks[i].value = twoWideRegionMasks[i];
-			uniformData.twoWideRegionMasks[i].pad = 0ull;
-		}
 		for (uint32_t i = 0; i < 512; i++) {
 			uniformData.directionMasks[i].value = directionMasks[i];
 			uniformData.directionMasks[i].pad = 0ull;
@@ -117,7 +110,14 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
-	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding,beamOutputImageBinding, uniformBufferBinding,chunkSSBOBinding,voxelSSBOBinding,oneNodeSSBOBinding,blockTextureArrayBinding };
+	VkDescriptorSetLayoutBinding velocityBufferBinding{
+		.binding = 7,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		.descriptorCount =1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr
+	};
+	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding,beamOutputImageBinding, uniformBufferBinding,chunkSSBOBinding,voxelSSBOBinding,oneNodeSSBOBinding,blockTextureArrayBinding,velocityBufferBinding };
 	VkDescriptorSetLayoutCreateInfo layoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
@@ -130,7 +130,7 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 	CHECK_VK_RESULT(result,"vkCreateDescriptorSetLayout");
 	return descriptorSetLayout;
 }
-void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkImageView beamOutputImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO,VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray ) {
+void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkImageView beamOutputImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO,VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray,VkImageView velocityImageView ) {
 	VkDescriptorImageInfo outputImageInfo{
 		.sampler = VK_NULL_HANDLE,
 		.imageView = outputImageView,
@@ -165,6 +165,11 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.sampler = blockTextureArray->sampler,
 		.imageView = blockTextureArray->imageView,
 		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
+	VkDescriptorImageInfo velocityImageInfo{
+	.sampler = VK_NULL_HANDLE,
+	.imageView = velocityImageView,
+	.imageLayout = VK_IMAGE_LAYOUT_GENERAL
 	};
 	VkWriteDescriptorSet computeOutputWrite{
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -250,7 +255,19 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 		.pBufferInfo = nullptr,
 		.pTexelBufferView = nullptr,
 	};
-	std::vector<VkWriteDescriptorSet> descriptorWrites = { computeOutputWrite,beamOutputWrite, uniformBufferWrite,chunkSSBOWrite,voxelSSBOWrite,oneNodeSSBOWrite,blockTextureWrite };
+	VkWriteDescriptorSet velocityWrite{
+	.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	.pNext = nullptr,
+	.dstSet = descriptorSet,
+	.dstBinding = 7,
+	.dstArrayElement = 0,
+	.descriptorCount = 1,
+	.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+	.pImageInfo = &velocityImageInfo,
+	.pBufferInfo = nullptr,
+	.pTexelBufferView = nullptr,
+	};
+	std::vector<VkWriteDescriptorSet> descriptorWrites = { computeOutputWrite,beamOutputWrite, uniformBufferWrite,chunkSSBOWrite,voxelSSBOWrite,oneNodeSSBOWrite,blockTextureWrite,velocityWrite };
 	vkUpdateDescriptorSets(logicalDevice, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 
 }

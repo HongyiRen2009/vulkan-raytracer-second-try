@@ -1,5 +1,6 @@
 #include "VulkanApp.h"
 using namespace my_vulkan;
+uint32_t VulkanApp::frameCounter = 0;
 VulkanApp::VulkanApp() {
 }
 VulkanApp::~VulkanApp() {
@@ -14,14 +15,22 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 	queue = vulkanCore.GetQueue();
 	numImages = vulkanCore.GetNumSwapChainImages();
 	CreateDescriptorPool();
-	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
+	raytracingPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
+	taaPipeline.Init(vulkanCore, descriptorPool, "TAACompute.comp.spv");
 	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
-	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
+	raytracingPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.raytracerDescriptorSet);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutputImage[i].imageView,frameData.beamOutputImage[i].imageView, frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
+		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
 	}
+
+	taaPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.taaDescriptorSet);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		int previousFrameIndex = (i - 1 + MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
+		taaPipeline.UpdateDescriptorSet(frameData.taaDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.taaOutputImage[previousFrameIndex].imageView, frameData.taaUniformBuffers[i].buffer, frameData.velocityBuffer[i].imageView, frameData.taaOutputImage[i].imageView);
+	}
+
 	ChunkData emptySlot = { .chunkPos = glm::vec3(0.0f), .gpuSlot = 0, .valid = 0 };
 	for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
 		for (uint32_t i = 0; i < 10000; i++) {
@@ -43,15 +52,15 @@ void VulkanApp::CreateCopyCommandBuffer() {
 void VulkanApp::CreateDescriptorPool() {
 	vector<VkDescriptorPoolSize> poolSizes = { {
 			.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-			.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+			.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 4,
 	},
 	{
 		.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 3,
 },
 	{
 		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 2,
 },
 {
 	.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -76,7 +85,7 @@ void VulkanApp::CreateDescriptorPool() {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+		.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT * 2,
 		.poolSizeCount = (uint32_t)poolSizes.size(),
 		.pPoolSizes = poolSizes.data(),
 	};
@@ -85,139 +94,167 @@ void VulkanApp::CreateDescriptorPool() {
 	cout << "Descriptor pool created successfully!" << std::endl;
 }
 
-void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
-	VkImageSubresourceRange imageRange{
-		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-		.baseMipLevel = 0,
-		.levelCount = 1,
-		.baseArrayLayer = 0,
-		.layerCount = 1,
-	};
-
-	VkImageMemoryBarrier swapchainToTransferBarrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.pNext = nullptr,
-		.srcAccessMask = 0,
-		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = vulkanCore.GetSwapChainImage(imageIndex),
-		.subresourceRange = imageRange,
-	};
-
-	ComputeUniformUpdateData uniformData{
-		.view = camera->getViewMatrix(),
-		.proj = camera->getProjectionMatrix(),
-		.cameraPos = camera->position,
-		.allChunksMin = ChunkManager::allChunksMin,
-		.allChunksMax = ChunkManager::allChunksMax,
-
-	};
-	ComputePushConstants pushConstants{
-		.beamResolutionDivisor = FrameData::beamResolutionDivider,
-		.computeToggle = (glfwGetKey(camera->window, GLFW_KEY_V) == GLFW_PRESS) ? 1u : 0u,
-		.isBeam = 1u
-	};
-	rtPipeline.updateUniformData(uniformData);
-
-	frameData.uniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), rtPipeline.GetUniformData(), sizeof(ComputeUniformData));
-
-	BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
-
-	// Beam pass
-	VkMemoryBarrier beamPreComputeBarrier{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-		.pNext = nullptr,
-		.srcAccessMask = 0,
-		.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-	};
-	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		0, 1, &beamPreComputeBarrier, 0, nullptr, 0, nullptr);
-
-	uint32_t beamGroupCountX = (vulkanCore.surfaceExtent.width / FrameData::beamResolutionDivider + 15) / 16;
-	uint32_t beamGroupCountY = (vulkanCore.surfaceExtent.height / FrameData::beamResolutionDivider + 15) / 16;
-	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], beamGroupCountX, beamGroupCountY, 1,pushConstants);
-
-	VkMemoryBarrier beamToFullBarrier{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-		.pNext = nullptr,
-		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-	};
-	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		0, 1, &beamToFullBarrier, 0, nullptr, 0, nullptr);
-
-	uint32_t fullGroupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
-	uint32_t fullGroupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
-	pushConstants.isBeam = 0u;
-	rtPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.descriptor[frameIndex], fullGroupCountX, fullGroupCountY, 1, pushConstants);
-	// Copy to swapchain image
-	VkMemoryBarrier fullToTransferBarrier{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-		.pNext = nullptr,
-		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-		.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-	};
-	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		0, 1, &fullToTransferBarrier, 0, nullptr, 0, nullptr);
-
-	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &swapchainToTransferBarrier);
-
-	VkImageCopy region = {
-		.srcSubresource = {
+	void VulkanApp::RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex) {
+		VkImageSubresourceRange imageRange{
 			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-			.mipLevel = 0,
+			.baseMipLevel = 0,
+			.levelCount = 1,
 			.baseArrayLayer = 0,
 			.layerCount = 1,
-		},
-		.srcOffset = { 0, 0, 0 },
-		.dstSubresource = {
-			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-			.mipLevel = 0,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		},
-		.dstOffset = { 0, 0, 0 },
-		.extent = { vulkanCore.surfaceExtent.width, vulkanCore.surfaceExtent.height, 1 },
-	};
+		};
 
-	vkCmdCopyImage(frameData.commandBuffers[frameIndex],
-		frameData.computeOutputImage[frameIndex].image, VK_IMAGE_LAYOUT_GENERAL,
-		vulkanCore.GetSwapChainImage(imageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		1, &region);
+		VkImageMemoryBarrier swapchainToTransferBarrier = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = 0,
+			.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = vulkanCore.GetSwapChainImage(imageIndex),
+			.subresourceRange = imageRange,
+		};
 
-	VkImageMemoryBarrier swapchainToPresentBarrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.pNext = nullptr,
-		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-		.dstAccessMask = 0,
-		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = vulkanCore.GetSwapChainImage(imageIndex),
-		.subresourceRange = imageRange,
-	};
+		RaytracingUniformUpdateData uniformData{
+			.view = camera->getViewMatrix(),
+			.proj = camera->getProjectionMatrix(),
+			.cameraPos = camera->position,
+			.allChunksMin = ChunkManager::allChunksMin,
+			.allChunksMax = ChunkManager::allChunksMax,
+			.jitter = raytracingPipeline.getJitter(frameCounter),
 
-	vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &swapchainToPresentBarrier);
+		};
+		RaytracingPushConstants pushConstants{
+			.beamResolutionDivisor = FrameData::beamResolutionDivider,
+			.computeToggle = (glfwGetKey(camera->window, GLFW_KEY_V) == GLFW_PRESS) ? 1u : 0u,
+			.isBeam = 1u,
+		};
+		TAAPushConstants taaPushConstants{
+			.TAAToggle = (glfwGetKey(camera->window, GLFW_KEY_B) == GLFW_PRESS) ? 1u : 0u,
+		};
+		raytracingPipeline.updateUniformData(uniformData);
 
-	VkResult result = vkEndCommandBuffer(frameData.commandBuffers[frameIndex]);
-	CHECK_VK_RESULT(result, "vkEndCommandBuffer");
-}
+		frameData.raytracerUniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), raytracingPipeline.GetUniformData(), sizeof(RaytracingUniformData));
+
+		BeginCommandBuffer(frameData.commandBuffers[frameIndex], VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
+
+		// Beam pass
+		VkMemoryBarrier beamPreComputeBarrier{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = 0,
+			.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+		};
+		vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0, 1, &beamPreComputeBarrier, 0, nullptr, 0, nullptr);
+
+		uint32_t beamGroupCountX = (vulkanCore.surfaceExtent.width / FrameData::beamResolutionDivider + 15) / 16;
+		uint32_t beamGroupCountY = (vulkanCore.surfaceExtent.height / FrameData::beamResolutionDivider + 15) / 16;
+		raytracingPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.raytracerDescriptorSet[frameIndex], beamGroupCountX, beamGroupCountY, 1, &pushConstants);
+
+		VkMemoryBarrier beamToFullBarrier{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		};
+		vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0, 1, &beamToFullBarrier, 0, nullptr, 0, nullptr);
+
+		uint32_t fullGroupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
+		uint32_t fullGroupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
+		pushConstants.isBeam = 0u;
+		raytracingPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.raytracerDescriptorSet[frameIndex], fullGroupCountX, fullGroupCountY, 1, &pushConstants);
+
+		// TAA pass
+		VkMemoryBarrier raytracingToTAABarrier{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+		};
+		TAAUniformData taaUniformData{
+			.frameSize = glm::vec4(vulkanCore.surfaceExtent.width, vulkanCore.surfaceExtent.height, 1.0f / vulkanCore.surfaceExtent.width, 1.0f / vulkanCore.surfaceExtent.height),
+			.jitter = raytracingPipeline.getJitter(frameCounter),
+		};
+		vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0, 1, &raytracingToTAABarrier, 0, nullptr, 0, nullptr);
+
+		frameData.taaUniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &taaUniformData,sizeof(TAAUniformData));
+
+		uint32_t taaGroupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
+		uint32_t taaGroupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
+		taaPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.taaDescriptorSet[frameIndex], taaGroupCountX, taaGroupCountY, 1, &taaPushConstants);
+
+		// Copy to swapchain image
+		VkMemoryBarrier taaToTransferBarrier{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+		};
+		vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			0, 1, &taaToTransferBarrier, 0, nullptr, 0, nullptr);
+
+		vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &swapchainToTransferBarrier);
+
+		VkImageCopy region = {
+			.srcSubresource = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.mipLevel = 0,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+			.srcOffset = { 0, 0, 0 },
+			.dstSubresource = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.mipLevel = 0,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+			.dstOffset = { 0, 0, 0 },
+			.extent = { vulkanCore.surfaceExtent.width, vulkanCore.surfaceExtent.height, 1 },
+		};
+
+		vkCmdCopyImage(frameData.commandBuffers[frameIndex],
+			frameData.taaOutputImage[frameIndex].image, VK_IMAGE_LAYOUT_GENERAL,
+			vulkanCore.GetSwapChainImage(imageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &region);
+
+		VkImageMemoryBarrier swapchainToPresentBarrier = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.dstAccessMask = 0,
+			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = vulkanCore.GetSwapChainImage(imageIndex),
+			.subresourceRange = imageRange,
+		};
+
+		vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &swapchainToPresentBarrier);
+
+		VkResult result = vkEndCommandBuffer(frameData.commandBuffers[frameIndex]);
+		CHECK_VK_RESULT(result, "vkEndCommandBuffer");
+		frameCounter++;
+	}
 void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 	const vector<unique_ptr<Chunk>>& chunks = chunkManager->GetChunks();
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
@@ -294,7 +331,8 @@ void VulkanApp::Render() {
 void VulkanApp::OnWindowResized(int width, int height) {
 	queue->WaitIdle();
 
-	rtPipeline.Cleanup();
+	raytracingPipeline.Cleanup();
+	taaPipeline.Cleanup();
 	frameData.Cleanup(vulkanCore.GetCommandPool());
 
 	if (descriptorPool != VK_NULL_HANDLE) {
@@ -309,16 +347,23 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
-	rtPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
-	rtPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.descriptor);
+	raytracingPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
+	raytracingPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.raytracerDescriptorSet);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		rtPipeline.UpdateDescriptorSet(frameData.descriptor[i], frameData.computeOutputImage[i].imageView,frameData.beamOutputImage[i].imageView, frameData.uniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray);
+		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
 	}
 
+	taaPipeline.Init(vulkanCore, descriptorPool, "TAACompute.comp.spv");
+	taaPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.taaDescriptorSet);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		int previousFrameIndex = (i - 1 + MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
+		taaPipeline.UpdateDescriptorSet(frameData.taaDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.taaOutputImage[previousFrameIndex].imageView, frameData.taaUniformBuffers[i].buffer, frameData.velocityBuffer[i].imageView, frameData.taaOutputImage[i].imageView);
+	}
 }
 void VulkanApp::Cleanup() {
 	queue->WaitIdle();
-	rtPipeline.Cleanup();
+	raytracingPipeline.Cleanup();
+	taaPipeline.Cleanup();
 	if (descriptorPool != VK_NULL_HANDLE) {
 		vkDestroyDescriptorPool(vulkanCore.GetLogicalDevice(), descriptorPool, nullptr);
 		descriptorPool = VK_NULL_HANDLE;

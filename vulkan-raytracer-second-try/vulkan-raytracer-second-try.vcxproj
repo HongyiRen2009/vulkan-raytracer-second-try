@@ -139,6 +139,7 @@
     <ClCompile Include="ImageAndMemory.h" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="RaytracingComputePipeline.cpp" />
+    <ClCompile Include="TAACompute.cpp" />
     <ClCompile Include="VulkanApp.cpp" />
     <ClCompile Include="VulkanCore.cpp" />
     <ClCompile Include="VulkanPhysicalDevices.cpp" />
@@ -155,6 +156,7 @@
     <ClInclude Include="FrameData.h" />
     <ClInclude Include="FreeList.h" />
     <ClInclude Include="RaytracingComputePipeline.h" />
+    <ClInclude Include="TAAComputePipeline.h" />
     <ClInclude Include="VulkanApp.h" />
     <ClInclude Include="VulkanCore.h" />
     <ClInclude Include="VulkanPhysicalDevices.h" />
@@ -171,6 +173,11 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="BlockDataManager.h" />
+    <CustomBuild Include="TAACompute.comp">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslc.exe "%(FullPath)" -o "%(FullPath).spv"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FullPath)%(Extension).spv</Outputs>
+    </CustomBuild>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

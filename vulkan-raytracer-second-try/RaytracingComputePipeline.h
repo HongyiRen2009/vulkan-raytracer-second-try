@@ -6,6 +6,7 @@
 #include <cstddef>
 #include "VulkanTexture.h"
 #include "BlockDataManager.h"
+using namespace glm;
 namespace my_vulkan
 {
 	struct alignas(16) Std140Uint64 {
@@ -13,28 +14,38 @@ namespace my_vulkan
 		uint64_t pad;
 	};
 
-	struct ComputeUniformData {
-		glm::mat4 view;
-		glm::mat4 proj;
-		glm::vec3 cameraPos;
+	struct RaytracingUniformData {
+		mat4 view;
+		mat4 proj;
+		mat4 previousView;
+		mat4 previousProj;
+		vec3 cameraPos;
 		uint32_t CHUNK_SIZE;
 		blockData blockDataArray[256];
-		Std140Uint64 twoWideRegionMasks[27];
 		Std140Uint64 directionMasks[512];
-		alignas(16) glm::ivec3 allChunksMin;
-		alignas(16) glm::ivec3 allChunksMax;
+		alignas(16) ivec3 allChunksMin;
+		alignas(16) ivec3 allChunksMax;
+		alignas(16) vec2 jitter;
+
 	};
-	struct ComputeUniformUpdateData {
-		glm::mat4 view;
-		glm::mat4 proj;
-		glm::vec3 cameraPos;
-		glm::ivec3 allChunksMin;
-		glm::ivec3 allChunksMax;
+	struct RaytracingUniformUpdateData {
+		mat4 view;
+		mat4 proj;
+		vec3 cameraPos;
+		ivec3 allChunksMin;
+		ivec3 allChunksMax;
+		vec2 jitter;
+
 	};
 
+	struct RaytracingPushConstants {
+		uint32_t beamResolutionDivisor;
+		uint32_t computeToggle;
+		uint32_t isBeam;
+	};
 
 	struct alignas(16) ChunkData {
-		glm::vec3 chunkPos;
+		vec3 chunkPos;
 		uint32_t gpuSlot;
 		uint32_t valid;
 		uint32_t oneNodeSlot;
@@ -45,20 +56,26 @@ namespace my_vulkan
 	public:
 		RaytracingComputePipeline();
 		~RaytracingComputePipeline();
-		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkImageView beamOutputImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray);
-		uint64_t twoWideRegionMasks[27];
-		uint64_t directionMasks[512];
-		ComputeUniformData* GetUniformData()  { return &uniformData; }
-		void updateUniformData(ComputeUniformUpdateData uniformUpdateData) {
+		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkImageView beamOutputImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray, VkImageView velocityImageView);
+		RaytracingUniformData* GetUniformData() { return &uniformData; }
+		void updateUniformData(RaytracingUniformUpdateData uniformUpdateData) {
+			uniformData.previousView = uniformData.view;
+			uniformData.previousProj = uniformData.proj;
 			uniformData.view = uniformUpdateData.view;
 			uniformData.proj = uniformUpdateData.proj;
 			uniformData.cameraPos = uniformUpdateData.cameraPos;
 			uniformData.allChunksMin = uniformUpdateData.allChunksMin;
 			uniformData.allChunksMax = uniformUpdateData.allChunksMax;
+			uniformData.jitter = uniformUpdateData.jitter;
+		}
+		vec2 haltonSamples[64];
+		vec2 getJitter(uint32_t frameCounter) {
+			return haltonSamples[frameCounter % 64]-vec2(0.5,0.5);
 		}
 	protected:
 		virtual VkDescriptorSetLayout CreateDescriptorSetLayout(VulkanCore& core) override;
-		ComputeUniformData uniformData;
+		virtual uint32_t GetPushConstantSize() const override { return sizeof(RaytracingPushConstants); }
+		RaytracingUniformData uniformData;
 
 	};
 }

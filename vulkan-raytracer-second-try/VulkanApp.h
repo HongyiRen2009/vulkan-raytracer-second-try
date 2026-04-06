@@ -6,6 +6,7 @@
 #include "VulkanUtils.h"
 #include "VulkanQueue.h"
 #include "RaytracingComputePipeline.h"
+#include "TAAComputePipeline.h"
 #include "FrameData.h"
 #include "Camera.h"
 #include "Chunk.h"
@@ -26,17 +27,21 @@ namespace my_vulkan
 			void UpdateChunkSSBO(ChunkManager* chunkManager);
 			void InvalidateChunksInGPU(vector<uint32_t> slotIndices);
 	private:
+		static uint32_t frameCounter;
 		VulkanCore vulkanCore;
 		int numImages = 0;
 		VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-		RaytracingComputePipeline rtPipeline;
+		RaytracingComputePipeline raytracingPipeline;
+		TAAComputePipeline taaPipeline;
 		FrameData frameData;
 		VulkanQueue* queue = nullptr;
 		Camera* camera;
 		VulkanTexture blockTextureArray;
+		VkSampler taaFrameSampler = VK_NULL_HANDLE;
 		VkCommandBuffer copyCommandBuffer = VK_NULL_HANDLE;
 		void CreateCopyCommandBuffer();
 		void CreateDescriptorPool();
+		void CreateTAAFrameSampler();
 		void RecordCommandBuffer(uint32_t frameIndex, uint32_t imageIndex);
 		void RecordComputeCommandBuffer();
 		

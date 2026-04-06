@@ -5,6 +5,7 @@
 #include <iostream>
 #include "BufferAndMemory.h"
 #include "RaytracingComputePipeline.h"
+#include "TAAComputePipeline.h"
 #include "Chunk.h"
 #include "ImageAndMemory.h"
 using namespace std;
@@ -16,13 +17,18 @@ namespace my_vulkan
 		vector<VkSemaphore> imageAvailable;
 		vector<VkSemaphore> renderFinished;
 		vector<VkFence> inFlight;
-		vector<VkDescriptorSet> descriptor;
-		vector<BufferAndMemory> uniformBuffers;
+		vector<VkDescriptorSet> raytracerDescriptorSet;
+		vector<BufferAndMemory> raytracerUniformBuffers;
 		vector <BufferAndMemory> chunkSSBO;
 		vector <BufferAndMemory> voxelSSBO;
 		vector<BufferAndMemory> oneNodeSSBO;
 		vector<ImageAndMemory> computeOutputImage;
+		vector<ImageAndMemory> taaOutputImage;
 		vector<ImageAndMemory> beamOutputImage;
+		vector<ImageAndMemory> velocityBuffer;
+
+		vector<VkDescriptorSet> taaDescriptorSet;
+		vector<BufferAndMemory> taaUniformBuffers;
  		constexpr static int beamResolutionDivider =4;
 		FrameData();
 		~FrameData();

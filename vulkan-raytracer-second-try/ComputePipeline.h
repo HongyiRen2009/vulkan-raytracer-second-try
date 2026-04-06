@@ -4,11 +4,6 @@
 #include "VulkanUtils.h"
 namespace my_vulkan
 {
-	struct ComputePushConstants {
-		uint32_t beamResolutionDivisor;
-		uint32_t computeToggle;
-		uint32_t isBeam;
-	};
 	class ComputePipeline
 	{
 	public:
@@ -21,11 +16,12 @@ namespace my_vulkan
 			uint32_t GroupCountX,
 			uint32_t GroupCountY,
 			uint32_t GroupCountZ,
-			const ComputePushConstants& pushConstants);
+			const void* pushConstants);
 		void AllocateDescriptorSets(int DescriptorCount, vector<VkDescriptorSet>& DescriptorSets);
 
 	protected:
 		virtual VkDescriptorSetLayout CreateDescriptorSetLayout(VulkanCore& core) = 0;
+		virtual uint32_t GetPushConstantSize() const = 0;
 		VkDevice logicalDevice = VK_NULL_HANDLE;
 		int numImages = 0;
 	private:
@@ -37,7 +33,5 @@ namespace my_vulkan
 		VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
 		VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
 		VkBuffer shaderStorageBuffer = VK_NULL_HANDLE;
-		
-
 	};
 }

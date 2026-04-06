@@ -42,13 +42,15 @@ layout(std140, binding = 2) uniform UniformBufferObject
 {
     mat4 view;
     mat4 proj;
+    mat4 previousView;
+    mat4 previousProj;
     vec3 cameraPos;
     uint CHUNK_SIZE;
     blockData blockDataArray[256];
-    uint64_t twoWideRegionMasks[27];
     uint64_t directionMasks[512];
     ivec3 allChunksMin;
     ivec3 allChunksMax;
+    vec2 jitter;
 } ubo;
 layout(binding=3) buffer ChunkSSBO
 {
@@ -62,6 +64,7 @@ layout (binding = 5) buffer OneNodeBuffer{
     uint32_t nodeIds[];
 } oneNodeSSBO;
 layout(binding=6) uniform sampler2DArray voxelTextureArray;
+layout(binding = 7, rg16f) uniform image2D velocityBuffer;
 const uint treeMaxDepth = 3;
 const uint32_t UINT32_MAX = 0xffffffffu;
 AncestorStack ancestorstack;
@@ -294,7 +297,7 @@ void rebuildDDAForStepSize(
 vec4 sampleVoxelTexture(uint voxelValue, vec3 hitPos, vec3 normal, float distance) {
     vec2 uv = getUVForFace(hitPos, normal);
     uint layer = getFaceTextureLayer(voxelValue, normal);
-    float lod = log2(max(distance, 1.0)) * 0.02;
+    float lod = log2(max(distance, 1.0)) * 0.05;
     lod = clamp(lod, 0.0, 12.0);
     
     return textureLod(voxelTextureArray, vec3(uv, layer), lod);
@@ -376,6 +379,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir,float startT) {
 
     return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0));
 }
+
 void main()
 {  
 ancestorstack.stackCount = 0u;
@@ -386,12 +390,15 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index to force reset on f
     if (pixel.x >= size.x || pixel.y >= size.y)
         return;
 
-    vec2 uv = vec2(pixel) / vec2(size);
-
+    // 1. Consistent UV Calculation
+    vec2 currentUV = (vec2(pixel) + 0.5) / vec2(size);
+    
+    // 2. Jitter (Temporal only is usually cleaner for TAA)
+    vec2 jitteredUV = currentUV + (ubo.jitter.xy / vec2(size));
     if(pushConstants.isBeam==1){
-        uv =vec2(pixel) / vec2(size) * vec2(pushConstants.beamResolutionDivisor);
+        jitteredUV =vec2(pixel) / vec2(size) * vec2(pushConstants.beamResolutionDivisor);
     }
-    vec2 ndc = uv * 2.0 - 1.0;
+    vec2 ndc = jitteredUV * 2.0 - 1.0;
     ndc.y *= -1.0;
     vec4 clip = vec4(ndc, -1.0, 1.0);
 
@@ -427,15 +434,22 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index to force reset on f
     }
 
     float startT = (beamT >= 0.0) ? beamT-1.0 : 0.0;
-    
     RaytraceResult result = raytrace(rayOrigin, rayDir, startT);
-
     if (result.voxelValue != 0u) {
-                vec3 normalizedNormal = normalize(result.normal);
+        vec3 normalizedNormal = normalize(result.normal);
         float brightness = dot(normalizedNormal, vec3(0.0, 1.0, 0.0)) * 0.4 + 0.6;
         vec4 litColor = vec4(result.color.rgb * brightness, result.color.a);
-            imageStore(img, pixel, litColor);
-        } else {
+        imageStore(img, pixel, litColor);
+
+// Velocity: both UVs must be unjittered
+vec4 prevClip = ubo.previousProj * ubo.previousView * vec4(rayOrigin + rayDir * result.tHit, 1.0);
+vec2 prevNDC  = prevClip.xy / prevClip.w;
+vec2 prevUV   = vec2(prevNDC.x, -prevNDC.y) * 0.5 + 0.5;
+// prevUV is already unjittered - no correction needed
+// currentUV is already unjittered - use it, not jitteredUV
+imageStore(velocityBuffer, pixel, vec4(prevUV - currentUV, 0.0, 1.0));
+} else {
         imageStore(img, pixel, vec4(1.0, 0.749, 0.0, 1.0));
+        imageStore(velocityBuffer, pixel, vec4(0.0));
     }
 }

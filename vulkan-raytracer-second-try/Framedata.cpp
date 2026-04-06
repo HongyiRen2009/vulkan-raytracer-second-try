@@ -58,6 +58,29 @@ namespace my_vulkan
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				0, 0, nullptr, 0, nullptr, 1, &computeBarrier);
 
+			VkImageMemoryBarrier taaBarrier{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.pNext = nullptr,
+				.srcAccessMask = 0,
+				.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = taaOutputImage[i].image,
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &taaBarrier);
+
 			VkImageMemoryBarrier beamBarrier{
 				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 				.pNext = nullptr,
@@ -80,6 +103,29 @@ namespace my_vulkan
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				0, 0, nullptr, 0, nullptr, 1, &beamBarrier);
+
+			VkImageMemoryBarrier velocityBarrier{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.pNext = nullptr,
+				.srcAccessMask = 0,
+				.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = velocityBuffer[i].image,
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &velocityBarrier);
 		}
 
 		vkEndCommandBuffer(commandBuffer);
@@ -142,22 +188,28 @@ namespace my_vulkan
 	}
 	void FrameData::CreateImages(VkPhysicalDevice physicalDevice, VkExtent2D extent) {
 		computeOutputImage.resize(numFrames);
+		taaOutputImage.resize(numFrames);
 		beamOutputImage.resize(numFrames);
+		velocityBuffer.resize(numFrames);
 		for (int i = 0;i < numFrames;i++) {
-			computeOutputImage[i].CreateImage(physicalDevice, logicalDevice, extent.width, extent.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		computeOutputImage[i].CreateImage(physicalDevice, logicalDevice, extent.width, extent.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		taaOutputImage[i].CreateImage(physicalDevice, logicalDevice, extent.width, extent.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			beamOutputImage[i].CreateImage(physicalDevice, logicalDevice, extent.width / beamResolutionDivider, extent.height / beamResolutionDivider, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		velocityBuffer[i].CreateImage(physicalDevice, logicalDevice, extent.width, extent.height, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 		}
 	}
 	void FrameData::CreateBuffers(VkPhysicalDevice physicalDevice, VkDevice logicalDevice) {
-		uniformBuffers.resize(numFrames);
+		raytracerUniformBuffers.resize(numFrames);
+		taaUniformBuffers.resize(numFrames);
 		chunkSSBO.resize(numFrames);
 		voxelSSBO.resize(numFrames);
 		oneNodeSSBO.resize(numFrames);
 		for (int i = 0;i < numFrames;i++) {
-			uniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ComputeUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+			raytracerUniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(RaytracingUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+			taaUniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(TAAUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 			chunkSSBO[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ChunkData) * 10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT); // 64 MB for voxel data
-			oneNodeSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 64 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 512 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT); // 512 MB for voxel data
+			oneNodeSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 512 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 		}
 	}
 	void FrameData::Cleanup(VkCommandPool commandPool) {
@@ -166,12 +218,15 @@ namespace my_vulkan
 			vkDestroySemaphore(logicalDevice, renderFinished[i], nullptr);
 			vkDestroyFence(logicalDevice, inFlight[i], nullptr);
 			vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffers[i]);
-			uniformBuffers[i].Cleanup(logicalDevice);
+			raytracerUniformBuffers[i].Cleanup(logicalDevice);
+			taaUniformBuffers[i].Cleanup(logicalDevice);
 			chunkSSBO[i].Cleanup(logicalDevice);
 			voxelSSBO[i].Cleanup(logicalDevice);
 			oneNodeSSBO[i].Cleanup(logicalDevice);
 			computeOutputImage[i].Cleanup(logicalDevice);
+			taaOutputImage[i].Cleanup(logicalDevice);
 			beamOutputImage[i].Cleanup(logicalDevice);
+			velocityBuffer[i].Cleanup(logicalDevice);
 		}
 	}
 }

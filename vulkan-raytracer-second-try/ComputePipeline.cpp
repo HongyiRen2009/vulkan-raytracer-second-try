@@ -2,75 +2,87 @@
 
 namespace my_vulkan
 {
-	
-		ComputePipeline::ComputePipeline() {}
-		ComputePipeline::~ComputePipeline() {}
 
-		void ComputePipeline::Init(VulkanCore & core, VkDescriptorPool DescriptorPool, const char* ComputeShaderFileName) {
-			logicalDevice = core.GetLogicalDevice();
-			descriptorPool = DescriptorPool;
-			descriptorSetLayout = CreateDescriptorSetLayout(core);
-			CreatePipelineLayout();
+	ComputePipeline::ComputePipeline() {}
+	ComputePipeline::~ComputePipeline() {}
 
-			ComputeShaderModule = VulkanUtils::CreateShaderModule(logicalDevice, ComputeShaderFileName);
-			CreatePipeline(ComputeShaderModule);
-		}
+	void ComputePipeline::Init(VulkanCore& core, VkDescriptorPool DescriptorPool, const char* ComputeShaderFileName) {
+		logicalDevice = core.GetLogicalDevice();
+		descriptorPool = DescriptorPool;
+		descriptorSetLayout = CreateDescriptorSetLayout(core);
+		CreatePipelineLayout();
 
-		void ComputePipeline::CreatePipeline(VkShaderModule computeShader) {
-			VkPipelineShaderStageCreateInfo shaderStageInfo{
-				.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-				.pNext = nullptr,
-				.flags = 0,
-				.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-				.module = computeShader,
-				.pName = "main",
-				.pSpecializationInfo = nullptr,
-			};
-			VkComputePipelineCreateInfo pipelineCreateInfo{
-				.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-				.pNext = nullptr,
-				.flags = 0,
-				.stage = shaderStageInfo,
-				.layout = pipelineLayout,
-				.basePipelineHandle = VK_NULL_HANDLE,
-				.basePipelineIndex = -1,
-			};
-			VkResult result = vkCreateComputePipelines(logicalDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &pipeline);
-			CHECK_VK_RESULT(result, "vkCreateComputePipelines");
-		}
+		ComputeShaderModule = VulkanUtils::CreateShaderModule(logicalDevice, ComputeShaderFileName);
+		CreatePipeline(ComputeShaderModule);
+	}
 
-		void ComputePipeline::CreatePipelineLayout() {
-			VkPushConstantRange pushRange{
+	void ComputePipeline::CreatePipeline(VkShaderModule computeShader) {
+		VkPipelineShaderStageCreateInfo shaderStageInfo{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+			.module = computeShader,
+			.pName = "main",
+			.pSpecializationInfo = nullptr,
+		};
+		VkComputePipelineCreateInfo pipelineCreateInfo{
+			.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.stage = shaderStageInfo,
+			.layout = pipelineLayout,
+			.basePipelineHandle = VK_NULL_HANDLE,
+			.basePipelineIndex = -1,
+		};
+		VkResult result = vkCreateComputePipelines(logicalDevice, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &pipeline);
+		CHECK_VK_RESULT(result, "vkCreateComputePipelines");
+	}
+
+	void ComputePipeline::CreatePipelineLayout() {
+		uint32_t pushConstantSize = GetPushConstantSize();
+
+		VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.setLayoutCount = 1,
+			.pSetLayouts = &descriptorSetLayout,
+			.pushConstantRangeCount = pushConstantSize > 0 ? 1u : 0u,
+			.pPushConstantRanges = nullptr,
+		};
+
+		VkPushConstantRange pushRange{};
+		if (pushConstantSize > 0) {
+			pushRange = {
 				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 				.offset = 0,
-				.size = sizeof(ComputePushConstants),
+				.size = pushConstantSize,
 			};
+			pipelineLayoutCreateInfo.pPushConstantRanges = &pushRange;
+		}
 
-			VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
-				.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-				.pNext = nullptr,
-				.flags = 0,
-				.setLayoutCount = 1,
-				.pSetLayouts = &descriptorSetLayout,
-				.pushConstantRangeCount = 1,
-				.pPushConstantRanges = &pushRange,
-			};
-			VkResult result = vkCreatePipelineLayout(logicalDevice, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout);
-			CHECK_VK_RESULT(result, "vkCreatePipelineLayout");
+		VkResult result = vkCreatePipelineLayout(logicalDevice, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout);
+		CHECK_VK_RESULT(result, "vkCreatePipelineLayout");
+	}
+	void ComputePipeline::RecordCommandBuffer(
+		VkCommandBuffer commandBuffer,
+		VkDescriptorSet DescriptorSet,
+		uint32_t GroupCountX,
+		uint32_t GroupCountY,
+		uint32_t GroupCountZ,
+		const void* pushConstants)
+	{
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
+
+		uint32_t pushConstantSize = GetPushConstantSize();
+		if (pushConstantSize > 0 && pushConstants != nullptr) {
+			vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, pushConstantSize, pushConstants);
 		}
-		void ComputePipeline::RecordCommandBuffer(
-			VkCommandBuffer commandBuffer,
-			VkDescriptorSet DescriptorSet,
-			uint32_t GroupCountX,
-			uint32_t GroupCountY,
-			uint32_t GroupCountZ,
-			const ComputePushConstants& pushConstants)
-		{
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
-			vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pushConstants);
-			vkCmdDispatch(commandBuffer, GroupCountX, GroupCountY, GroupCountZ);
-		}
+
+		vkCmdDispatch(commandBuffer, GroupCountX, GroupCountY, GroupCountZ);
+	}
 
 	void ComputePipeline::AllocateDescriptorSets(int DescriptorCount, vector<VkDescriptorSet>& DescriptorSets) {
 		assert(DescriptorCount > 0);
@@ -84,7 +96,7 @@ namespace my_vulkan
 			.pSetLayouts = layouts.data(),
 		};
 		VkResult result = vkAllocateDescriptorSets(logicalDevice, &allocInfo, DescriptorSets.data());
-		CHECK_VK_RESULT(result,"vkAllocateDescriptorSets");
+		CHECK_VK_RESULT(result, "vkAllocateDescriptorSets");
 	}
 	void ComputePipeline::Cleanup() {
 		if (pipeline != VK_NULL_HANDLE) {
