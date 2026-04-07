@@ -450,6 +450,6 @@ vec2 prevUV   = vec2(prevNDC.x, -prevNDC.y) * 0.5 + 0.5;
 imageStore(velocityBuffer, pixel, vec4(prevUV - currentUV, 0.0, 1.0));
 } else {
         imageStore(img, pixel, vec4(1.0, 0.749, 0.0, 1.0));
-        imageStore(velocityBuffer, pixel, vec4(0.0));
+        imageStore(velocityBuffer, pixel, vec4(1.0));
     }
 }

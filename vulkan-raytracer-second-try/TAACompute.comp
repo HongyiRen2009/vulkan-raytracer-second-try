@@ -13,6 +13,7 @@ layout (binding = 4, rgba8) uniform writeonly image2D outputFrame;
 
 layout(push_constant) uniform PushConstants {
 	int TAAToggle;
+    int cameraMoved;
 } TAAPushConstants;
 
 
@@ -24,56 +25,56 @@ void main() {
 
     vec3 currentColor = imageLoad(currentFrame, pixelCoords).rgb;
     vec2 motionToPrev = imageLoad(velocityBuffer, pixelCoords).rg;
-    
-    vec2 currentUV = (vec2(pixelCoords) + 0.5) / size;
+
+    vec3 neighborhoodMin = currentColor;
+    vec3 neighborhoodMax = currentColor;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            ivec2 sampleCoords = clamp(pixelCoords + ivec2(x, y), ivec2(0), sizeI - ivec2(1));
+            vec3 sampleColor = imageLoad(currentFrame, sampleCoords).rgb;
+            neighborhoodMin = min(neighborhoodMin, sampleColor);
+            neighborhoodMax = max(neighborhoodMax, sampleColor);
+        }
+    }
+
+    vec2 currentUV = (vec2(pixelCoords)) / size;
     if(TAAPushConstants.TAAToggle == 1) {
         imageStore(outputFrame, pixelCoords, vec4(currentColor, 1.0));
         return;
     }
+
+    // Reproject to previous frame using motion vector
     vec2 prevUV = currentUV + motionToPrev;
+    vec2 prevPixelCoords = prevUV * size;
+    ivec2 prevPixelCoordsInt = ivec2(round(prevPixelCoords));
 
-    // 1. Out of bounds check
-    if(prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) {
-        imageStore(outputFrame, pixelCoords, vec4(currentColor, 1.0));
-        return;
-    }
+    // Check if reprojected coordinates are within bounds
+    bool isValidReprojection = prevPixelCoordsInt.x >= 0 && prevPixelCoordsInt.x < sizeI.x &&
+                               prevPixelCoordsInt.y >= 0 && prevPixelCoordsInt.y < sizeI.y;
 
-    // 2. Bilinear history sampling for stable reprojection
-    vec2 prevPixel = prevUV * size - 0.5;
-    ivec2 p0 = ivec2(floor(prevPixel));
-    ivec2 p1 = p0 + ivec2(1, 0);
-    ivec2 p2 = p0 + ivec2(0, 1);
-    ivec2 p3 = p0 + ivec2(1, 1);
-    p0 = clamp(p0, ivec2(0), sizeI - ivec2(1));
-    p1 = clamp(p1, ivec2(0), sizeI - ivec2(1));
-    p2 = clamp(p2, ivec2(0), sizeI - ivec2(1));
-    p3 = clamp(p3, ivec2(0), sizeI - ivec2(1));
-    vec2 f = fract(prevPixel);
+    vec4 prevData;
+    vec3 prevColor;
+    float frameCount;
 
-    vec3 c00 = imageLoad(previousFrame, p0).rgb;
-    vec3 c10 = imageLoad(previousFrame, p1).rgb;
-    vec3 c01 = imageLoad(previousFrame, p2).rgb;
-    vec3 c11 = imageLoad(previousFrame, p3).rgb;
-    vec3 prevColor = mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
-
-    // 3. Neighborhood clipping to reduce ghosting
-    vec3 minNeighbor = currentColor;
-    vec3 maxNeighbor = currentColor;
-
-    for(int dy = -1; dy <= 1; dy++) {
-        for(int dx = -1; dx <= 1; dx++) {
-            ivec2 neighborCoord = pixelCoords + ivec2(dx, dy);
-            neighborCoord = clamp(neighborCoord, ivec2(0), sizeI - ivec2(1));
-            vec3 neighborColor = imageLoad(currentFrame, neighborCoord).rgb;
-            minNeighbor = min(minNeighbor, neighborColor);
-            maxNeighbor = max(maxNeighbor, neighborColor);
+    if(isValidReprojection) {
+        // Sample from reprojected location
+        prevData = imageLoad(previousFrame, prevPixelCoordsInt);
+        prevColor = prevData.rgb;
+        prevColor = clamp(prevColor, neighborhoodMin - vec3(0.02), neighborhoodMax + vec3(0.02));
+        float maxFrameCount = 16.0;
+        frameCount = prevData.a * maxFrameCount;
+        if(frameCount>=16.0&&TAAPushConstants.cameraMoved == 1) {
+            // If camera moved and history is old, reset it
+            frameCount = 15.0;
         }
+    } else {
+        // Out of bounds or camera moved: reset history
+        prevColor = currentColor;
+        frameCount = 0.0;
     }
 
-    prevColor = clamp(prevColor, minNeighbor, maxNeighbor);
-
-    const float temporalSampleCount = 9.0;
-    const float historyWeight = (temporalSampleCount - 1.0) / temporalSampleCount;
+    float maxFrameCount = 16.0;
+    float historyWeight = clamp(frameCount / maxFrameCount, 0.0, 1.0);
     vec3 finalColor = mix(currentColor, prevColor, historyWeight);
-    imageStore(outputFrame, pixelCoords, vec4(finalColor, 1.0));
+    imageStore(outputFrame, pixelCoords, vec4(finalColor, (frameCount+1)/maxFrameCount));
 }

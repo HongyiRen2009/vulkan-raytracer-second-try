@@ -130,9 +130,14 @@ void VulkanApp::CreateDescriptorPool() {
 			.computeToggle = (glfwGetKey(camera->window, GLFW_KEY_V) == GLFW_PRESS) ? 1u : 0u,
 			.isBeam = 1u,
 		};
+		bool cameraMoved = glm::distance(camera->position, lastCameraPos) > 0.001f;
+		bool cameraRotated = glm::distance(camera->front, lastCameraFront) > 0.001f;
 		TAAPushConstants taaPushConstants{
 			.TAAToggle = (glfwGetKey(camera->window, GLFW_KEY_B) == GLFW_PRESS) ? 1u : 0u,
+			.cameraMoved = (cameraMoved||cameraRotated) ? 1u : 0u,
 		};
+		lastCameraPos = camera->position;
+		lastCameraFront = camera->front;
 		raytracingPipeline.updateUniformData(uniformData);
 
 		frameData.raytracerUniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), raytracingPipeline.GetUniformData(), sizeof(RaytracingUniformData));

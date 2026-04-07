@@ -36,6 +36,8 @@ namespace my_vulkan
 		FrameData frameData;
 		VulkanQueue* queue = nullptr;
 		Camera* camera;
+		vec3 lastCameraPos;
+		vec3 lastCameraFront;
 		VulkanTexture blockTextureArray;
 		VkSampler taaFrameSampler = VK_NULL_HANDLE;
 		VkCommandBuffer copyCommandBuffer = VK_NULL_HANDLE;

@@ -7,6 +7,7 @@ namespace my_vulkan
 {
 	struct alignas(16) TAAPushConstants {
 		uint32_t TAAToggle;
+		uint32_t cameraMoved;
 	};
 	struct alignas(16) TAAUniformData {
 		vec4 frameSize;
