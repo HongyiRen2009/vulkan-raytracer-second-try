@@ -71,13 +71,15 @@ void updateFPSCounter() {
 	}
 }
 void checkForChunkUpdates() {
+	if(chunkManager.isGeneratingChunks){
+		return;
+		}
 	ivec2 cameraChunkPos = ivec2(floor(camera->position.x / Chunk::CHUNK_SIZE), floor(camera->position.z / Chunk::CHUNK_SIZE));
 	vec2 cameraLoadPos = vec2(camera->position.x, camera->position.z);
 	if (!initalizedFirstChunks||(cameraChunkPos != lastCameraChunkPos && distance(cameraLoadPos, lastCameraLoadPos) > Chunk::CHUNK_SIZE * 1.5)) {
 		chunkManager.requestChunkGeneration(ivec3(cameraChunkPos.x, 0, cameraChunkPos.y));
 		lastCameraChunkPos = cameraChunkPos;
 		lastCameraLoadPos = cameraLoadPos;
-		initalizedFirstChunks = true;
 	}
 }
 void updateChunkSSBO() {
@@ -85,6 +87,9 @@ void updateChunkSSBO() {
 	chunkManager.invalidChunks.clear();
 	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	chunkManager.isGeneratingChunks = false;
+	if(!initalizedFirstChunks){
+		initalizedFirstChunks = true;
+	}
 }
 
 int main() {
@@ -95,7 +100,6 @@ int main() {
 	vulkanApp.Init("Vulkan App", window, camera);
 	chunkManager.init(seed);
 	vector<uint32_t> _;
-	vulkanApp.UpdateChunkSSBO(&chunkManager);
 	if (!glfwVulkanSupported()) {
 		return -1;
 	}
@@ -105,8 +109,11 @@ int main() {
 		}
 		checkForChunkUpdates();
 		glfwPollEvents();
-		vulkanApp.Render();
+		if(initalizedFirstChunks){
+			vulkanApp.Render();
+		}
 		processInput(window);
+		
 		updateFPSCounter();
 	}
 	vulkanApp.Cleanup();

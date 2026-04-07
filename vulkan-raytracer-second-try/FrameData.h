@@ -26,6 +26,7 @@ namespace my_vulkan
 		vector<ImageAndMemory> taaOutputImage;
 		vector<ImageAndMemory> beamOutputImage;
 		vector<ImageAndMemory> velocityBuffer;
+		vector<ImageAndMemory> depthBuffer;
 
 		vector<VkDescriptorSet> taaDescriptorSet;
 		vector<BufferAndMemory> taaUniformBuffers;

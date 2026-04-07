@@ -38,7 +38,8 @@ layout(push_constant) uniform PushConstants {
 } pushConstants;
 layout(binding = 0, rgba8) uniform writeonly image2D img;
 layout(binding = 1, r32f) uniform image2D beamImage;
-layout(std140, binding = 2) uniform UniformBufferObject
+layout(binding = 2, r16f) uniform image2D depthBuffer;
+layout(std140, binding = 8) uniform UniformBufferObject
 {
     mat4 view;
     mat4 proj;
@@ -65,6 +66,7 @@ layout (binding = 5) buffer OneNodeBuffer{
 } oneNodeSSBO;
 layout(binding=6) uniform sampler2DArray voxelTextureArray;
 layout(binding = 7, rg16f) uniform image2D velocityBuffer;
+
 const uint treeMaxDepth = 3;
 const uint32_t UINT32_MAX = 0xffffffffu;
 AncestorStack ancestorstack;
@@ -441,15 +443,16 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index to force reset on f
         vec4 litColor = vec4(result.color.rgb * brightness, result.color.a);
         imageStore(img, pixel, litColor);
 
-// Velocity: both UVs must be unjittered
-vec4 prevClip = ubo.previousProj * ubo.previousView * vec4(rayOrigin + rayDir * result.tHit, 1.0);
-vec2 prevNDC  = prevClip.xy / prevClip.w;
-vec2 prevUV   = vec2(prevNDC.x, -prevNDC.y) * 0.5 + 0.5;
-// prevUV is already unjittered - no correction needed
-// currentUV is already unjittered - use it, not jitteredUV
-imageStore(velocityBuffer, pixel, vec4(prevUV - currentUV, 0.0, 1.0));
-} else {
+    } 
+    else {
+        result.tHit=999.0;
         imageStore(img, pixel, vec4(1.0, 0.749, 0.0, 1.0));
-        imageStore(velocityBuffer, pixel, vec4(1.0));
     }
+    vec4 prevClip = ubo.previousProj * ubo.previousView * vec4(rayOrigin + rayDir * result.tHit, 1.0);
+    vec2 prevNDC  = prevClip.xy / prevClip.w;
+    vec2 prevUV   = vec2(prevNDC.x, -prevNDC.y) * 0.5 + 0.5;
+    imageStore(velocityBuffer, pixel, vec4(prevUV - currentUV, 0.0, 1.0));
+    imageStore(depthBuffer, pixel, vec4(result.tHit, 0.0, 0.0, 1.0));
+
+
 }

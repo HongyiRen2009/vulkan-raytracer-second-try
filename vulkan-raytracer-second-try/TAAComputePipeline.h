@@ -19,7 +19,8 @@ namespace my_vulkan
 	public:
 		TAAComputePipeline();
 		~TAAComputePipeline();
-		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView currentFrameImageView, VkImageView previousFrameImageView, VkBuffer uniformBuffer, VkImageView velocityImage, VkImageView outputFrameImageView);
+		void Cleanup();
+		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView currentFrameImageView, VkImageView previousFrameImageView, VkBuffer uniformBuffer, VkImageView velocityImage, VkImageView outputFrameImageView, VkImageView depthBufferImageView);
 	
 	protected:
 		virtual VkDescriptorSetLayout CreateDescriptorSetLayout(VulkanCore& core) override;
@@ -27,5 +28,8 @@ namespace my_vulkan
 		virtual uint32_t GetPushConstantSize() const override {
 			return sizeof(TAAPushConstants);
 		}
+
+	private:
+		VkSampler linearSampler = VK_NULL_HANDLE;
 	};
 }

@@ -22,13 +22,13 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 
 	raytracingPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.raytracerDescriptorSet);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
+		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView,frameData.depthBuffer[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
 	}
 
 	taaPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.taaDescriptorSet);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		int previousFrameIndex = (i - 1 + MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
-		taaPipeline.UpdateDescriptorSet(frameData.taaDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.taaOutputImage[previousFrameIndex].imageView, frameData.taaUniformBuffers[i].buffer, frameData.velocityBuffer[i].imageView, frameData.taaOutputImage[i].imageView);
+		taaPipeline.UpdateDescriptorSet(frameData.taaDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.taaOutputImage[previousFrameIndex].imageView, frameData.taaUniformBuffers[i].buffer, frameData.velocityBuffer[i].imageView, frameData.taaOutputImage[i].imageView, frameData.depthBuffer[i].imageView);
 	}
 
 	ChunkData emptySlot = { .chunkPos = glm::vec3(0.0f), .gpuSlot = 0, .valid = 0 };
@@ -78,7 +78,7 @@ void VulkanApp::CreateDescriptorPool() {
 },
 	{
 		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 4,
 }
 	};
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{
@@ -183,14 +183,21 @@ void VulkanApp::CreateDescriptorPool() {
 			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
 			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
 		};
+		VkMemoryBarrier depthBufferBarrier{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		};
 		TAAUniformData taaUniformData{
 			.frameSize = glm::vec4(vulkanCore.surfaceExtent.width, vulkanCore.surfaceExtent.height, 1.0f / vulkanCore.surfaceExtent.width, 1.0f / vulkanCore.surfaceExtent.height),
 			.jitter = raytracingPipeline.getJitter(frameCounter),
 		};
+		VkMemoryBarrier memoryBarriers[2] = { raytracingToTAABarrier, depthBufferBarrier };
 		vkCmdPipelineBarrier(frameData.commandBuffers[frameIndex],
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			0, 1, &raytracingToTAABarrier, 0, nullptr, 0, nullptr);
+			0, 2, memoryBarriers, 0, nullptr, 0, nullptr);
 
 		frameData.taaUniformBuffers[frameIndex].AddData(vulkanCore.GetLogicalDevice(), &taaUniformData,sizeof(TAAUniformData));
 
@@ -355,14 +362,14 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	raytracingPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	raytracingPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.raytracerDescriptorSet);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
+		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView,frameData.depthBuffer[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
 	}
 
 	taaPipeline.Init(vulkanCore, descriptorPool, "TAACompute.comp.spv");
 	taaPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.taaDescriptorSet);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		int previousFrameIndex = (i - 1 + MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
-		taaPipeline.UpdateDescriptorSet(frameData.taaDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.taaOutputImage[previousFrameIndex].imageView, frameData.taaUniformBuffers[i].buffer, frameData.velocityBuffer[i].imageView, frameData.taaOutputImage[i].imageView);
+		taaPipeline.UpdateDescriptorSet(frameData.taaDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.taaOutputImage[previousFrameIndex].imageView, frameData.taaUniformBuffers[i].buffer, frameData.velocityBuffer[i].imageView, frameData.taaOutputImage[i].imageView, frameData.depthBuffer[i].imageView);
 	}
 }
 void VulkanApp::Cleanup() {
