@@ -45,7 +45,6 @@ void main() {
         imageStore(outputFrame, pixelCoords, vec4(currentColor, 1.0));
         return;
     }
-
     // Reproject to previous frame using motion vector
     vec2 prevUV = unjitteredUV + motionToPrev+vec2(0.5)/size;
     bool isValidReprojection = all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThanEqual(prevUV, vec2(1.0)));

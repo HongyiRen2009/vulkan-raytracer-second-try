@@ -9,6 +9,7 @@
 #include <queue>
 #include <condition_variable>
 #include "FreeList.h"
+#include "include/FastNoiseLite.h"
 using namespace std;
 
 class ChunkManager {
@@ -34,7 +35,7 @@ public:
 private:
 	std::mutex invalidChunksMutex;
 	int renderDistance = 16;
-	int renderDistanceHeight = 1;
+	int renderDistanceHeight = 3;
 	unsigned int seed;
 	vector<unique_ptr<Chunk>> chunks;
 	unordered_set<uint32_t> hashedChunkPositions;
@@ -50,6 +51,7 @@ private:
 	void onChunkGenerationComplete();
 	std::thread chunkGenerationThread;
 	std::mutex chunkGenMutex;
+	FastNoiseLite noise;
 
 	std::condition_variable chunkGenCV;
 	std::atomic<bool> shouldShutdown = false;

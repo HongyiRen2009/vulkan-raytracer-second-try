@@ -123,6 +123,7 @@ void VulkanApp::CreateDescriptorPool() {
 			.allChunksMin = ChunkManager::allChunksMin,
 			.allChunksMax = ChunkManager::allChunksMax,
 			.jitter = raytracingPipeline.getJitter(frameCounter),
+			.sunPosition = vec3(10000.0f, 10000.0f, 0.0f),
 
 		};
 		RaytracingPushConstants pushConstants{
@@ -342,6 +343,7 @@ void VulkanApp::Render() {
 }
 void VulkanApp::OnWindowResized(int width, int height) {
 	queue->WaitIdle();
+	frameCounter = 0;
 
 	raytracingPipeline.Cleanup();
 	taaPipeline.Cleanup();

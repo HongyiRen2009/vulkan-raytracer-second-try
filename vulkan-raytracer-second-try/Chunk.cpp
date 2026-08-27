@@ -20,94 +20,29 @@
 #include "include/libmorton/morton.h"
 using namespace std;
 using namespace glm;
-unsigned int waterLevel = 60;
-unsigned int mountainLevel = 80;
-unsigned int snowLevel = 100;
+unsigned int waterLevel = 130;
+unsigned int mountainLevel = 200;
+unsigned int snowLevel = 200;
 // --- PerlinNoise class (can be moved to its own file if desired) ---
-class PerlinNoise {
-	std::vector<int> p;
-	unsigned int seed;
-public:
-	PerlinNoise(unsigned int seed = 0) {
-		this->seed = seed;
-		p.resize(256);
-		std::iota(p.begin(), p.end(), 0);
-		std::default_random_engine engine(seed);
-		std::shuffle(p.begin(), p.end(), engine);
-		p.insert(p.end(), p.begin(), p.end()); // Duplicate for overflow
-	}
-	float perlinNoise(float x, float y, int octaves, float persistence, float baseFrequency) {
-		float total = 0;
-		float frequency = baseFrequency;
-		float amplitude = 1;
-		float maxValue = 0;
-		for (int i = 0; i < octaves; i++) {
-			total += noise(x * frequency, y * frequency) * amplitude;
-			maxValue += amplitude;
-			amplitude *= persistence;
-			frequency *= 2;
-		}
-		return total / maxValue;
-	}
-	bool seededRandom(int x, int y, int chance) {
-		// Example: 2D integer hash, deterministic for (x, y, seed)
-		unsigned int hash = x * 73856093 ^ y * 19349663 ^ seed * 83492791;
-		// Make the result more random
-		hash = (hash ^ (hash >> 13)) * 0x5bd1e995;
-		// Decide threshold for tree placement
-		return (hash % 100) < chance; // 2% chance
-	}
-private:
-	int hash(int x, int y) {
-		return p[p[x % 256] + (y % 256)];
-	}
-	float fade(float t) {
-		return t * t * t * (t * (t * 6 - 15) + 10);
-	}
-	float grad(int hash, float x, float y) {
-		int h = hash & 3;
-		float u = h < 2 ? x : y;
-		float v = h < 2 ? y : x;
-		return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
-	}
-	float lerp(float a, float b, float t) {
-		return a + t * (b - a);
-	}
-	float noise(float x, float y) {
-		int X = (int)std::floor(x) & 255;
-		int Y = (int)std::floor(y) & 255;
-		x -= std::floor(x);
-		y -= std::floor(y);
-		float u = fade(x);
-		float v = fade(y);
-		int aa = hash(X, Y);
-		int ab = hash(X, Y + 1);
-		int ba = hash(X + 1, Y);
-		int bb = hash(X + 1, Y + 1);
-		float gradAA = grad(aa, x, y);
-		float gradBA = grad(ba, x - 1, y);
-		float gradAB = grad(ab, x, y - 1);
-		float gradBB = grad(bb, x - 1, y - 1);
-		float res = lerp(lerp(gradAA, gradBA, u), lerp(gradAB, gradBB, u), v);
-		return res;
-	}
-};
 Chunk::Chunk(unsigned int seed, ivec3 spawnPosition)
-	: perlinNoise(new PerlinNoise(seed))
 {
+	this->seed = seed;
 	chunkPosition = spawnPosition;
 }
-
-unsigned int  Chunk::generateTerrainHeight(int x, int z) {
-	int maxheight = 200;
-	int minheight = 20;
-	// Generate height using 2D perlin noise on the horizontal plane
-	float noiseValue = perlinNoise->perlinNoise(x, z, 8, 0.5, 0.005);
-
-	// Normalize noise value to 0-1 range and scale between minheight and maxheight
-	float normalizedHeight = pow((noiseValue + 1.0f) * 0.5f, 2); // Convert from ~[-1, 1] to [0, 1]
-	unsigned int terrainHeight = static_cast<unsigned int>(normalizedHeight * (maxheight - minheight) + minheight);
-	terrainHeight = glm::clamp(terrainHeight, static_cast<unsigned int>(minheight), static_cast<unsigned int>(maxheight));
+bool Chunk::seededRandom(int x, int y, int chance) {
+	unsigned int hash = x * 73856093 ^ y * 19349663 ^ seed * 83492791;
+	hash = (hash ^ (hash >> 13)) * 0x5bd1e995;
+	return (hash % 100) < chance;
+	}
+unsigned int  Chunk::generateTerrainHeight(int x, int z, FastNoiseLite* noise) {
+	constexpr float minHeight = 40.0f;
+	constexpr float maxHeight = 220.0f;
+	float noiseValue = noise->GetNoise((float)x, (float)z);
+	// FBm is centered around zero. The old fourth-power ridge mapping turns
+	// FBm's midpoint into 1/16 of maxHeight, placing almost everything below
+	// the water level. Remap the bounded [-1, 1] result linearly instead.
+	float normalizedHeight = glm::clamp(noiseValue * 0.5f + 0.5f, 0.0f, 1.0f);
+	unsigned int terrainHeight = static_cast<unsigned int>(glm::mix(minHeight, maxHeight, normalizedHeight));
 	return terrainHeight;
 }
 
@@ -184,12 +119,12 @@ void Chunk::generateTree(int x, int y, int z) {
 		}
 	}
 }
-void Chunk::generateTerrain() {
+void Chunk::generateTerrain(FastNoiseLite* noise) {
 	std::vector<std::vector<unsigned int>> columnHeights(CHUNK_SIZE, std::vector<unsigned int>(CHUNK_SIZE));
 	for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 		for (unsigned int k = 0; k < CHUNK_SIZE; k++) {
 			ivec2 globalPosition = ivec2(i + chunkPosition.x * CHUNK_SIZE, k + chunkPosition.z * CHUNK_SIZE);
-			columnHeights[i][k] = generateTerrainHeight(globalPosition.x, globalPosition.y);
+			columnHeights[i][k] = generateTerrainHeight(globalPosition.x, globalPosition.y, noise);
 		}
 	}
 
@@ -198,24 +133,32 @@ void Chunk::generateTerrain() {
 			for (unsigned int i = 0; i < CHUNK_SIZE; i++) {
 				unsigned int globalY = j + chunkPosition.y * CHUNK_SIZE;
 				unsigned int terrainHeight = columnHeights[i][k];
-
+				
 				if (blocks[i][j][k] != 0) continue;
-
 				if (globalY > terrainHeight) {
-					blocks[i][j][k] = (globalY <= waterLevel) ? 6 : 0;
+					blocks[i][j][k] = (globalY <= waterLevel) ? BlockType::WATER : BlockType::AIR;
+					continue;
+				}
+				if (globalY > snowLevel) {
+					blocks[i][j][k] = BlockType::SNOW;
+					continue;
+				}
+				if (globalY > mountainLevel) {
+					blocks[i][j][k] = BlockType::STONE;
 					continue;
 				}
 
+
 				if (terrainHeight < waterLevel + 2 && j > terrainHeight - 3 && terrainHeight >= waterLevel) {
-					blocks[i][j][k] = 7;
+					blocks[i][j][k] = BlockType::SAND;
 					continue;
 				}
 				if (globalY == terrainHeight) {
-					blocks[i][j][k] = (globalY >= waterLevel) ? 1 : 8;
+					blocks[i][j][k] = (globalY >= waterLevel) ? BlockType::GRASS : BlockType::GRAVEL;
 					continue;
 				}
 				if (globalY > terrainHeight - 6) {
-					blocks[i][j][k] = (terrainHeight >= waterLevel) ? 2 : 8;
+					blocks[i][j][k] = (terrainHeight >= waterLevel) ? BlockType::DIRT : BlockType::GRAVEL;
 					continue;
 				}
 				blocks[i][j][k] = 3;
@@ -233,7 +176,7 @@ void Chunk::generateTerrain() {
 				continue;
 			}
 
-			if (terrainHeight >= waterLevel && perlinNoise->seededRandom(globalPosition.x, globalPosition.y, 2) && blocks[i][localTerrainHeight][k] == 1) {
+			if (terrainHeight >= waterLevel && seededRandom(globalPosition.x, globalPosition.y, 2) && blocks[i][localTerrainHeight][k] == 1) {
 				generateTree(i, localTerrainHeight, k);
 			}
 		}
@@ -344,5 +287,4 @@ void Chunk::BuildTree(int x, int y, int z, int size) {
 	childNodePool.clear();
 }
 Chunk::~Chunk() {
-	delete perlinNoise;
 }

@@ -1,14 +1,5 @@
 #include "BlockDataManager.h"
-enum BlockType {
-	AIR = 0,
-	GRASS = 1,
-	DIRT = 2,
-	STONE = 3,
-	WOOD = 4,
-	LEAF = 5,
-	WATER = 6
 
-};
 struct blockUV {
 	unsigned int blockBottomLefts[6];
 	bool transparent = false;

@@ -8,10 +8,11 @@
 #include <unordered_map>
 #include <memory>
 #include <functional> 
+#include "include/FastNoiseLite.h"
+#include "BlockDataManager.h"
 using namespace glm;
 using namespace std;
 
-class PerlinNoise;
 struct IVec2Hash {
     std::size_t operator()(const glm::ivec2& v) const noexcept {
         return std::hash<int>()(v.x) ^ (std::hash<int>()(v.y) << 1);
@@ -40,7 +41,7 @@ public:
     ivec3 chunkPosition;
 	vector<tuple<ivec3, unsigned int>> unloadedChunkBlockstoPlace;
     Chunk(unsigned int seed, ivec3 spawnPosition);
-    void generateTerrain();
+    void generateTerrain(FastNoiseLite* noise);
     ~Chunk();
     bool isDirty = false;
     unsigned int gpuSlot = UINT32_MAX;
@@ -52,12 +53,13 @@ public:
 
 
 private:
-    unsigned int generateTerrainHeight(int x, int z);
+    unsigned int generateTerrainHeight(int x, int z, FastNoiseLite* noise);
     bool generateTreeValid(int x, int y, int z, int layerSize);
     void generateTree(int x, int y, int z);
-    PerlinNoise* perlinNoise;
     void BuildTree(int x, int y, int z, int size);
     TempNode CreateNode(int x, int y, int z, int size);
 	bool isRegionUniform(int x, int y, int z, int depth, unsigned int blockId);
     vector<TempNode> childNodePool;
+	unsigned int seed;
+    bool seededRandom(int x, int y, int chance);
 };

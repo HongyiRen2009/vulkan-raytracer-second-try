@@ -9,6 +9,11 @@ ChunkManager::ChunkManager() {
 	chunkGenerationThread = std::thread(&ChunkManager::chunkGenerationWorker, this);
 	chunkFreeList.init(512 * 1024 * 1024 / sizeof(Node)); // 64 MB
 	oneNodeFreeList.init(512 * 1024 * 1024 / sizeof(unsigned int)); // 64 MB
+	noise.SetNoiseType(FastNoiseLite::NoiseType::NoiseType_Perlin);
+	noise.SetFractalType(FastNoiseLite::FractalType::FractalType_FBm);
+	noise.SetFractalOctaves(5);
+	noise.SetFrequency(0.005f);
+
 }
 
 ChunkManager::~ChunkManager() {
@@ -24,6 +29,7 @@ ChunkManager::~ChunkManager() {
 
 void ChunkManager::init(unsigned int seed) {
 	this->seed = seed;
+	noise.SetSeed(static_cast<int>(seed));
 }
 
 string getChunkSetString(ivec3 chunkPos) {
@@ -111,7 +117,7 @@ void ChunkManager::loadChunks(vector<ivec3> spawnPositions) {
 		pendingChunkGenerations.fetch_add(1, std::memory_order_relaxed);
 		threadPool.enqueue([this, chunkPtr]() {
 			try {
-				chunkPtr->generateTerrain();
+				chunkPtr->generateTerrain(&noise);
 				chunkPtr->gpuSlot = chunkFreeList.allocate((unsigned int)chunkPtr->nodePool.size());
 				if (chunkPtr->oneNodePool.size() > 0){
 					chunkPtr->oneNodeSlot = oneNodeFreeList.allocate((unsigned int)chunkPtr->oneNodePool.size());

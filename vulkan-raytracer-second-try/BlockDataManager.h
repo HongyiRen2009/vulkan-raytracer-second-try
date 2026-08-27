@@ -13,3 +13,16 @@ public:
 	static blockData blockDataArray[256];
 	static void populateBlockDataArray();
 };
+enum BlockType {
+	AIR = 0,
+	GRASS = 1,
+	DIRT = 2,
+	STONE = 3,
+	WOOD = 4,
+	LEAF = 5,
+	WATER = 6,
+	SAND = 7,
+	GRAVEL = 8,
+	SNOW = 9,
+
+};
