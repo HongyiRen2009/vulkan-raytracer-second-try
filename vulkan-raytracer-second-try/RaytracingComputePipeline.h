@@ -59,7 +59,7 @@ namespace my_vulkan
 	public:
 		RaytracingComputePipeline();
 		~RaytracingComputePipeline();
-		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkImageView beamOutputImageView, VkImageView depthImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray, VkImageView velocityImageView);
+		void UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView, VkImageView beamOutputImageView, VkImageView depthImageView, VkBuffer uniformBuffer, VkBuffer chunkSSBO, VkBuffer voxelSSBO, VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray, VkImageView velocityImageView, VkImageView previousDepthImageView);
 		RaytracingUniformData* GetUniformData() { return &uniformData; }
 		void updateUniformData(RaytracingUniformUpdateData uniformUpdateData) {
 			uniformData.previousView = uniformData.view;

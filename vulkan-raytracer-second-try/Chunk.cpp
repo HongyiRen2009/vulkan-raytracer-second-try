@@ -147,9 +147,10 @@ void Chunk::generateTerrain(FastNoiseLite* noise) {
 					blocks[i][j][k] = BlockType::STONE;
 					continue;
 				}
-
-
-				if (terrainHeight < waterLevel + 2 && j > terrainHeight - 3 && terrainHeight >= waterLevel) {
+				const bool nearWaterLevel =
+					terrainHeight >= waterLevel - 2 &&
+					terrainHeight <= waterLevel + 2;
+				if (nearWaterLevel && globalY > terrainHeight - 3) {
 					blocks[i][j][k] = BlockType::SAND;
 					continue;
 				}

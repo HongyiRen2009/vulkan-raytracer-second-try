@@ -22,7 +22,8 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 
 	raytracingPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.raytracerDescriptorSet);
 	for (int i = 0;i < MAX_FRAMES_IN_FLIGHT;i++) {
-		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView,frameData.depthBuffer[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
+		int previousFrameIndex = (i - 1 + MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
+		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView,frameData.depthBuffer[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView, frameData.depthBuffer[previousFrameIndex].imageView);
 	}
 
 	taaPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.taaDescriptorSet);
@@ -364,7 +365,8 @@ void VulkanApp::OnWindowResized(int width, int height) {
 	raytracingPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	raytracingPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.raytracerDescriptorSet);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView,frameData.depthBuffer[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView);
+		int previousFrameIndex = (i - 1 + MAX_FRAMES_IN_FLIGHT) % MAX_FRAMES_IN_FLIGHT;
+		raytracingPipeline.UpdateDescriptorSet(frameData.raytracerDescriptorSet[i], frameData.computeOutputImage[i].imageView, frameData.beamOutputImage[i].imageView,frameData.depthBuffer[i].imageView, frameData.raytracerUniformBuffers[i].buffer, frameData.chunkSSBO[i].buffer, frameData.voxelSSBO[i].buffer, frameData.oneNodeSSBO[i].buffer, &blockTextureArray, frameData.velocityBuffer[i].imageView, frameData.depthBuffer[previousFrameIndex].imageView);
 	}
 
 	taaPipeline.Init(vulkanCore, descriptorPool, "TAACompute.comp.spv");

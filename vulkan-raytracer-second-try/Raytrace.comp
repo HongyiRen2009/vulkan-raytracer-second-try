@@ -67,6 +67,7 @@ layout (binding = 5) buffer OneNodeBuffer{
 } oneNodeSSBO;
 layout(binding=6) uniform sampler2DArray voxelTextureArray;
 layout(binding = 7, rg16f) uniform image2D velocityBuffer;
+layout(binding = 9, r16f) uniform readonly image2D previousDepthBuffer;
 
 const uint treeMaxDepth = 3;
 const uint32_t UINT32_MAX = 0xffffffffu;
@@ -81,6 +82,7 @@ struct RaytraceResult {
     vec3 waterHitPos;
     vec3 waterNormal;
     float waterTHit;
+    bool passedThroughWater;
 };
 uint hashChunkPos(ivec3 pos) {
     const uint p1 = 73856093u;
@@ -319,7 +321,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
 
     vec3 invDir = 1.0 / rayDir;
     float tCurrent = max(startT,chunkAABBIntersection(rayOrigin, rayDir,invDir));
-    if (tCurrent < 0.0) return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), false, vec3(0.0), vec3(0.0), 0.0);
+    if (tCurrent < 0.0) return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), false, vec3(0.0), vec3(0.0), 0.0, false);
 
     int lastStepAxis = getAABBEntryAxis(rayOrigin, rayDir,invDir);
     ivec3 step = ivec3(sign(rayDir));
@@ -336,6 +338,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
     vec3 waterHitPos = vec3(0.0);
     vec3 waterNormal = vec3(0.0);
     float waterTHit = 0.0;
+    bool passedThroughWater = false;
     for (int step_count = 0; step_count < MAX_STEPS; step_count++) {
 
         ivec3 chunkPos = ivec3(
@@ -373,6 +376,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
             float rayDistance = pathDistance + tCurrent;
             vec4 texColor = sampleVoxelTexture(res.voxelValue, rayHitPos, normal, rayDistance);
             if(res.voxelValue ==6){
+                passedThroughWater = true;
                 // Water does not block sunlight. Shadow rays only need an
                 // occlusion answer and must never execute material bounces.
                 if (occlusionOnly) {
@@ -380,10 +384,11 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
                 }
                 if(pushConstants.isBeam==1) {
                     returnColor*=texColor.rgb;
-                    return RaytraceResult(res.voxelValue, normal, tCurrent, vec4(returnColor, 1.0), rayHitPos, true, rayHitPos, normal, tCurrent);
+                    return RaytraceResult(res.voxelValue, normal, tCurrent, vec4(returnColor, 1.0), rayHitPos, true, rayHitPos, normal, tCurrent, true);
                 }
                 else if (!occlusionOnly && !waterColorApplied) {
-                    returnColor *= texColor.rgb;
+                    vec3 waterColor = vec3( 0.851,0.36, 0.38);
+                    returnColor *= waterColor;
                     waterColorApplied = true;
                 }
 
@@ -406,7 +411,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
                     invDir = 1.0 / rayDir;
                     tCurrent = max(0.0, chunkAABBIntersection(rayOrigin, rayDir, invDir));
                     if (tCurrent < 0.0) {
-                        return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), hitWater, waterHitPos, waterNormal, waterTHit);
+                        return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), hitWater, waterHitPos, waterNormal, waterTHit, passedThroughWater);
                     }
                     step = ivec3(sign(rayDir));
                     stepSize = 1;
@@ -418,7 +423,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
             }
             else if (texColor.a > 0.01||pushConstants.isBeam==1) {
                 returnColor*=texColor.rgb;
-                return RaytraceResult(res.voxelValue, normal, pathDistance + tCurrent, vec4(returnColor, 1.0), rayHitPos, hitWater, waterHitPos, waterNormal, waterTHit);
+                return RaytraceResult(res.voxelValue, normal, pathDistance + tCurrent, vec4(returnColor, 1.0), rayHitPos, hitWater, waterHitPos, waterNormal, waterTHit, passedThroughWater);
             }
         }
 
@@ -442,7 +447,7 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
         }
         }
 
-    return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), hitWater, waterHitPos, waterNormal, waterTHit);
+    return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), hitWater, waterHitPos, waterNormal, waterTHit, passedThroughWater);
 }
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -471,14 +476,14 @@ vec3 sampleSunDirection(vec3 sunDir, vec2 pixel, vec2 temporalJitter) {
         bitangent * disk.y * angularRadius
     );
 }
-vec3 shadeRayResult(RaytraceResult result, vec3 skyColor, vec3 sunDir) {
+vec3 shadeRayResult(RaytraceResult result, vec3 skyColor, vec3 sunDir,bool castShadows) {
     if (result.voxelValue == 0u) return skyColor;
 
     vec3 normal = normalize(result.normal);
     float diffuse = max(dot(normal, sunDir), 0.0);
     float sunVisible = 1.0;
 
-    if (diffuse > 0.0) {
+    if (diffuse > 0.0 && castShadows) {
         vec3 shadowOrigin = result.hitPos + normal * 0.002;
         RaytraceResult sunRay = raytrace(shadowOrigin, sunDir, 0.0, true, true);
         sunVisible = (sunRay.voxelValue == 0u) ? 1.0 : 0.0;
@@ -501,9 +506,16 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
 
     vec2 currentUV = (vec2(pixel) + 0.5) / vec2(size);
     
-    vec2 jitteredUV = currentUV + (ubo.jitter.xy / vec2(size));
+    vec2 jitteredUV = currentUV;
     if(pushConstants.isBeam==1){
         jitteredUV =vec2(pixel) / vec2(size) * vec2(pushConstants.beamResolutionDivisor);
+    } else {
+        // A zero depth is the persistent water marker. Once this pixel's ray
+        // traversed water, keep its primary ray exactly on the pixel center.
+        float previousDepth = imageLoad(previousDepthBuffer, pixel).r;
+        if (previousDepth != 0.0) {
+            jitteredUV += ubo.jitter.xy / vec2(size);
+        }
     }
     vec2 ndc = jitteredUV * 2.0 - 1.0;
     ndc.y *= -1.0;
@@ -542,23 +554,23 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
     vec3 skyColor = vec3(1.0, 0.749, 0.0);
     float startT = (beamT >= 0.0) ? beamT-1.0 : 0.0;
     RaytraceResult result = raytrace(rayOrigin, rayDir, startT, false, false);
-    RaytraceResult refractedResult = RaytraceResult(0u, vec3(0.0), 0.0, vec4(0.0), vec3(0.0), false, vec3(0.0), vec3(0.0), 0.0);
+    RaytraceResult refractedResult = RaytraceResult(0u, vec3(0.0), 0.0, vec4(0.0), vec3(0.0), false, vec3(0.0), vec3(0.0), 0.0, false);
     vec3 shadowDir = normalize(vec3(0.5, 0.5, 0.0));
     shadowDir = sampleSunDirection(normalize(shadowDir), vec2(pixel), ubo.jitter.xy);
     if (result.hitWater) {
-        const float AIR_TO_WATER_ETA = 1.0 / 1.333;
-        vec3 refractedDir = refract(rayDir, result.waterNormal, AIR_TO_WATER_ETA);
-        bool totalInternalReflection = dot(refractedDir, refractedDir) < 1e-8;
-        if (!totalInternalReflection) {
-            vec3 refractedOrigin = result.waterHitPos + refractedDir * 0.01;
-            refractedResult = raytrace(refractedOrigin, refractedDir, 0.0, false, true);
-        }
-
-        vec3 reflectedColor = shadeRayResult(result, skyColor, shadowDir);
-        vec3 refractedColor = totalInternalReflection ? reflectedColor : shadeRayResult(refractedResult, skyColor, shadowDir);
+//        const float AIR_TO_WATER_ETA = 1.0 / 1.333;
+//        vec3 refractedDir = refract(rayDir, result.waterNormal, AIR_TO_WATER_ETA);
+//        bool totalInternalReflection = dot(refractedDir, refractedDir) < 1e-8;
+//        if (!totalInternalReflection) {
+//            vec3 refractedOrigin = result.waterHitPos + refractedDir * 0.01;
+//            refractedResult = raytrace(refractedOrigin, refractedDir, 0.0, false, true);
+//        }
+        refractedResult = raytrace(result.waterHitPos + result.waterNormal * 0.01, rayDir, 0.0, false, true);
+        vec3 reflectedColor = shadeRayResult(result, skyColor, shadowDir,false);
+        vec3 refractedColor = shadeRayResult(refractedResult, skyColor, shadowDir,true);
         float cosTheta = clamp(dot(-rayDir, result.waterNormal), 0.0, 1.0);
         const float WATER_F0 = 0.0204;
-        float fresnel = totalInternalReflection ? 1.0 : WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - cosTheta, 5.0);
+        float fresnel = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - cosTheta, 5.0);
         vec3 litColor = mix(refractedColor, reflectedColor, fresnel);
 
         imageStore(img, pixel, vec4(litColor, 1.0));
@@ -567,7 +579,7 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
         result.tHit = result.waterTHit;
     }
     else if (result.voxelValue != 0u) {
-        vec3 litColor = shadeRayResult(result, skyColor, shadowDir);
+        vec3 litColor = shadeRayResult(result, skyColor, shadowDir,true);
         imageStore(img, pixel, vec4(litColor, 1.0));
 
     }
@@ -579,7 +591,12 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
     vec2 prevNDC  = prevClip.xy / prevClip.w;
     vec2 prevUV   = vec2(prevNDC.x, -prevNDC.y) * 0.5 + 0.5;
     imageStore(velocityBuffer, pixel, vec4(prevUV - currentUV, 0.0, 1.0));
-    imageStore(depthBuffer, pixel, vec4(result.tHit, 0.0, 0.0, 1.0));
+    if(result.passedThroughWater){
+           imageStore(depthBuffer, pixel, vec4(0.0, 0.0, 0.0, 1.0));
+    }
+    else{
+        imageStore(depthBuffer, pixel, vec4(result.tHit, 0.0, 0.0, 1.0));
+    }
 
 
 }

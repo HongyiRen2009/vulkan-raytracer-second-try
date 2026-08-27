@@ -124,7 +124,14 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.pImmutableSamplers = nullptr,
 	};
-	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding, beamOutputImageBinding, depthImageBinding, chunkSSBOBinding, voxelSSBOBinding, oneNodeSSBOBinding, blockTextureArrayBinding, velocityBufferBinding, uniformBufferBinding };
+	VkDescriptorSetLayoutBinding previousDepthImageBinding{
+		.binding = 9,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr,
+	};
+	std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding, beamOutputImageBinding, depthImageBinding, chunkSSBOBinding, voxelSSBOBinding, oneNodeSSBOBinding, blockTextureArrayBinding, velocityBufferBinding, uniformBufferBinding, previousDepthImageBinding };
 	VkDescriptorSetLayoutCreateInfo layoutCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
@@ -137,7 +144,7 @@ VkDescriptorSetLayout RaytracingComputePipeline::CreateDescriptorSetLayout(Vulka
 	CHECK_VK_RESULT(result,"vkCreateDescriptorSetLayout");
 	return descriptorSetLayout;
 }
-void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkImageView beamOutputImageView,VkImageView depthImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO,VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray,VkImageView velocityImageView ) {
+void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSet, VkImageView outputImageView,VkImageView beamOutputImageView,VkImageView depthImageView,VkBuffer uniformBuffer,VkBuffer chunkSSBO, VkBuffer voxelSSBO,VkBuffer oneNodeSSBO, VulkanTexture* blockTextureArray,VkImageView velocityImageView, VkImageView previousDepthImageView) {
 	VkDescriptorImageInfo outputImageInfo{
 		.sampler = VK_NULL_HANDLE,
 		.imageView = outputImageView,
@@ -181,7 +188,12 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 	VkDescriptorImageInfo velocityImageInfo{
 	.sampler = VK_NULL_HANDLE,
 	.imageView = velocityImageView,
-	.imageLayout = VK_IMAGE_LAYOUT_GENERAL
+		.imageLayout = VK_IMAGE_LAYOUT_GENERAL
+	};
+	VkDescriptorImageInfo previousDepthImageInfo{
+		.sampler = VK_NULL_HANDLE,
+		.imageView = previousDepthImageView,
+		.imageLayout = VK_IMAGE_LAYOUT_GENERAL
 	};
 	VkWriteDescriptorSet computeOutputWrite{
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -291,7 +303,19 @@ void RaytracingComputePipeline::UpdateDescriptorSet(VkDescriptorSet descriptorSe
 	.pBufferInfo = nullptr,
 	.pTexelBufferView = nullptr,
 	};
-	std::vector<VkWriteDescriptorSet> descriptorWrites = { computeOutputWrite, beamOutputWrite, depthImageWrite, chunkSSBOWrite, voxelSSBOWrite, oneNodeSSBOWrite, blockTextureWrite, velocityWrite, uniformBufferWrite };
+	VkWriteDescriptorSet previousDepthWrite{
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.pNext = nullptr,
+		.dstSet = descriptorSet,
+		.dstBinding = 9,
+		.dstArrayElement = 0,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		.pImageInfo = &previousDepthImageInfo,
+		.pBufferInfo = nullptr,
+		.pTexelBufferView = nullptr,
+	};
+	std::vector<VkWriteDescriptorSet> descriptorWrites = { computeOutputWrite, beamOutputWrite, depthImageWrite, chunkSSBOWrite, voxelSSBOWrite, oneNodeSSBOWrite, blockTextureWrite, velocityWrite, uniformBufferWrite, previousDepthWrite };
 	vkUpdateDescriptorSets(logicalDevice, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 
 }
