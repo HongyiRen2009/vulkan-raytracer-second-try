@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <memory>
 #include <functional> 
+#include <cstdint>
 #include "include/FastNoiseLite.h"
 #include "BlockDataManager.h"
 using namespace glm;
@@ -36,7 +37,7 @@ public:
     vector<Node> nodePool;
     vector<unsigned int> oneNodePool;
     static constexpr unsigned int CHUNK_SIZE = 64;
-	static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * sizeof(unsigned int); //Currently oversized
+    static constexpr unsigned int CHUNK_VOXEL_SIZE_IN_BYTES = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * sizeof(uint8_t);
     unsigned int hashTableSlot;
     ivec3 chunkPosition;
 	vector<tuple<ivec3, unsigned int>> unloadedChunkBlockstoPlace;
@@ -49,7 +50,9 @@ public:
     unsigned int getBlock(int x, int y, int z);
     void setBlock(int x, int y, int z, unsigned int newBlock);
 
-    unsigned int blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE]{};
+    // Block IDs occupy only the low 8 bits. Keeping four bytes per voxel made
+    // every resident chunk consume 1 MiB before its SVO was even considered.
+    uint8_t blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE]{};
 
 
 private:

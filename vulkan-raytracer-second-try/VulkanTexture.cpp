@@ -18,13 +18,15 @@ namespace my_vulkan
 	}
 
 	void VulkanTexture::BeginCommandBuffer(VkCommandBuffer commandBuffer, VkCommandBufferUsageFlags usageFlags) {
+		VkResult result = vkResetCommandBuffer(commandBuffer, 0);
+		CHECK_VK_RESULT(result, "vkResetCommandBuffer");
 		VkCommandBufferBeginInfo beginInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 			.pNext = nullptr,
 			.flags = usageFlags,
 			.pInheritanceInfo = nullptr,
 		};
-		VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+		result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
 		CHECK_VK_RESULT(result, "vkBeginCommandBuffer");
 	}
 

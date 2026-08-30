@@ -33,7 +33,7 @@ namespace my_vulkan
  		constexpr static int beamResolutionDivider =4;
 		FrameData();
 		~FrameData();
-		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames,VkExtent2D extent);
+		void init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames, int numSwapchainImages, VkExtent2D extent);
 		void InitializeComputeOutputLayouts(VkCommandPool commandPool, VkQueue queue);
 		int AdvanceFrame() {
 			frameIndex = (frameIndex + 1) % numFrames;
@@ -49,6 +49,7 @@ namespace my_vulkan
 		void CreateImages(VkPhysicalDevice physicalDevice, VkExtent2D extent);
 		void CreateBuffers(VkPhysicalDevice physicalDevice, VkDevice logicalDevice);
 		int numFrames = 0;
+		int numSwapchainImages = 0;
 		int frameIndex = -1;
 
 		VkDevice logicalDevice = VK_NULL_HANDLE;

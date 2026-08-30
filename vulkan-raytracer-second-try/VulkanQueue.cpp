@@ -29,7 +29,7 @@ namespace my_vulkan
 		VkPipelineStageFlags waitStage,
 		VkSemaphore signalSemaphore,
 		VkFence fence) {
-		VkPipelineStageFlags waitFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	VkPipelineStageFlags waitFlags = waitStage;
 	VkSubmitInfo submitInfo{
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,

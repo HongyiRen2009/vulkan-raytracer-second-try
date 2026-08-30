@@ -17,7 +17,7 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 	CreateDescriptorPool();
 	raytracingPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");
 	taaPipeline.Init(vulkanCore, descriptorPool, "TAACompute.comp.spv");
-	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
+	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, numImages, vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
 	raytracingPipeline.AllocateDescriptorSets(MAX_FRAMES_IN_FLIGHT, frameData.raytracerDescriptorSet);
@@ -79,7 +79,7 @@ void VulkanApp::CreateDescriptorPool() {
 },
 	{
 		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 4,
+		.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 5,
 }
 	};
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{
@@ -272,6 +272,9 @@ void VulkanApp::CreateDescriptorPool() {
 		frameCounter++;
 	}
 void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
+	// Chunk uploads touch both per-frame buffer copies. They are infrequent, so
+	// synchronize here instead of serializing every rendered frame.
+	queue->WaitIdle();
 	const vector<unique_ptr<Chunk>>& chunks = chunkManager->GetChunks();
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
 
@@ -317,6 +320,8 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 	}
 }
 void VulkanApp::InvalidateChunksInGPU(vector<uint32_t> slotIndices) {
+	if (slotIndices.empty()) return;
+	queue->WaitIdle();
 	for (int i = 0;i < slotIndices.size();i++) {
 		ChunkData data = {
 			.chunkPos = glm::vec3(0.0f),
@@ -329,7 +334,6 @@ void VulkanApp::InvalidateChunksInGPU(vector<uint32_t> slotIndices) {
 	}
 }
 void VulkanApp::Render() {
-	queue->WaitIdle();
 	int frameIndex = frameData.AdvanceFrame();
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
 	vkWaitForFences(logicalDevice, 1, &frameData.inFlight[frameIndex], VK_TRUE, UINT64_MAX);
@@ -339,10 +343,11 @@ void VulkanApp::Render() {
 		return;
 	}
 	vkResetFences(logicalDevice, 1, &frameData.inFlight[frameIndex]);
+	vkResetCommandBuffer(frameData.commandBuffers[frameIndex], 0);
 
 	RecordCommandBuffer(frameIndex, imageIndex);
-	queue->SubmitAsync(frameData.commandBuffers[frameIndex], frameData.imageAvailable[frameIndex], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frameData.renderFinished[frameIndex], frameData.inFlight[frameIndex]);
-	queue->Present(imageIndex, frameData.renderFinished[frameIndex]);
+	queue->SubmitAsync(frameData.commandBuffers[frameIndex], frameData.imageAvailable[frameIndex], VK_PIPELINE_STAGE_TRANSFER_BIT, frameData.renderFinished[imageIndex], frameData.inFlight[frameIndex]);
+	queue->Present(imageIndex, frameData.renderFinished[imageIndex]);
 }
 void VulkanApp::OnWindowResized(int width, int height) {
 	queue->WaitIdle();
@@ -359,9 +364,10 @@ void VulkanApp::OnWindowResized(int width, int height) {
 
 	vulkanCore.RecreateSwapChain();
 	queue->UpdateSwapChain(vulkanCore.GetSwapChain());
+	numImages = vulkanCore.GetNumSwapChainImages();
 	CreateDescriptorPool();
 
-	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, vulkanCore.surfaceExtent);
+	frameData.init(vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device, vulkanCore.GetLogicalDevice(), vulkanCore.GetCommandPool(), MAX_FRAMES_IN_FLIGHT, numImages, vulkanCore.surfaceExtent);
 	frameData.InitializeComputeOutputLayouts(vulkanCore.GetCommandPool(), queue->GetQueue());
 
 	raytracingPipeline.Init(vulkanCore, descriptorPool, "Raytrace.comp.spv");

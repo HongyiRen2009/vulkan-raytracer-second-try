@@ -167,16 +167,20 @@
   <ItemGroup>
     <CustomBuild Include="Raytrace.comp">
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslc.exe "%(FullPath)" -o "%(FullPath).spv"</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FullPath)%(Extension).spv</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslc.exe -O "%(FullPath)" -o "%(FullPath).spv"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">glslc.exe -O "%(FullPath)" -o "%(FullPath).spv"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FullPath).spv</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(FullPath).spv</Outputs>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <None Include="BlockDataManager.h" />
     <CustomBuild Include="TAACompute.comp">
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslc.exe "%(FullPath)" -o "%(FullPath).spv"</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FullPath)%(Extension).spv</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslc.exe -O "%(FullPath)" -o "%(FullPath).spv"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">glslc.exe -O "%(FullPath)" -o "%(FullPath).spv"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FullPath).spv</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(FullPath).spv</Outputs>
     </CustomBuild>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -20,7 +20,7 @@
 #include "include/libmorton/morton.h"
 using namespace std;
 using namespace glm;
-unsigned int waterLevel = 130;
+unsigned int waterLevel = 120;
 unsigned int mountainLevel = 200;
 unsigned int snowLevel = 200;
 // --- PerlinNoise class (can be moved to its own file if desired) ---

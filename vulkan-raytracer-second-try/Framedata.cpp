@@ -5,9 +5,10 @@ namespace my_vulkan
 	}
 	FrameData::~FrameData() {
 	}
-	void FrameData::init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames, VkExtent2D extent) {
+	void FrameData::init(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkCommandPool commandPool, int numFrames, int numSwapchainImages, VkExtent2D extent) {
 		frameIndex = -1;
 		this->numFrames = numFrames;
+		this->numSwapchainImages = numSwapchainImages;
 		this->logicalDevice = logicalDevice;
 		CreateSemaphores();
 		CreateCommandBuffers(commandPool);
@@ -204,11 +205,13 @@ namespace my_vulkan
 			.flags = 0,
 		};
 		imageAvailable.resize(numFrames);
-		renderFinished.resize(numFrames);
+		renderFinished.resize(numSwapchainImages);
 		for (int i = 0;i < numFrames;i++) {
 			VkResult result = vkCreateSemaphore(logicalDevice, &semaphoreCreateInfo, nullptr, &imageAvailable[i]);
 			CHECK_VK_RESULT(result, "vkCreateSemaphore");
-			result = vkCreateSemaphore(logicalDevice, &semaphoreCreateInfo, nullptr, &renderFinished[i]);
+		}
+		for (int i = 0; i < numSwapchainImages; i++) {
+			VkResult result = vkCreateSemaphore(logicalDevice, &semaphoreCreateInfo, nullptr, &renderFinished[i]);
 			CHECK_VK_RESULT(result, "vkCreateSemaphore");
 		}
 	}
@@ -268,7 +271,6 @@ namespace my_vulkan
 	void FrameData::Cleanup(VkCommandPool commandPool) {
 		for (int i = 0;i < numFrames;i++) {
 			vkDestroySemaphore(logicalDevice, imageAvailable[i], nullptr);
-			vkDestroySemaphore(logicalDevice, renderFinished[i], nullptr);
 			vkDestroyFence(logicalDevice, inFlight[i], nullptr);
 			vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffers[i]);
 			raytracerUniformBuffers[i].Cleanup(logicalDevice);
@@ -281,6 +283,9 @@ namespace my_vulkan
 			beamOutputImage[i].Cleanup(logicalDevice);
 			velocityBuffer[i].Cleanup(logicalDevice);
 			depthBuffer[i].Cleanup(logicalDevice);
+		}
+		for (int i = 0; i < numSwapchainImages; i++) {
+			vkDestroySemaphore(logicalDevice, renderFinished[i], nullptr);
 		}
 	}
 }

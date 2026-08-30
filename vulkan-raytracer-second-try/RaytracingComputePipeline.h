@@ -17,6 +17,8 @@ namespace my_vulkan
 	struct RaytracingUniformData {
 		mat4 view;
 		mat4 proj;
+		mat4 inverseView;
+		mat4 inverseProj;
 		mat4 previousView;
 		mat4 previousProj;
 		vec3 cameraPos;
@@ -68,6 +70,8 @@ namespace my_vulkan
 			uniformData.previousProj = uniformData.proj;
 			uniformData.view = uniformUpdateData.view;
 			uniformData.proj = uniformUpdateData.proj;
+			uniformData.inverseView = inverse(uniformUpdateData.view);
+			uniformData.inverseProj = inverse(uniformUpdateData.proj);
 			uniformData.cameraPos = uniformUpdateData.cameraPos;
 			uniformData.allChunksMin = uniformUpdateData.allChunksMin;
 			uniformData.allChunksMax = uniformUpdateData.allChunksMax;

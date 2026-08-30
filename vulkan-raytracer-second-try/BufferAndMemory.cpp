@@ -15,11 +15,7 @@ uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, Vk
 	throw std::runtime_error("Failed to find suitable memory type!");
 }
 void BufferAndMemory::AddData(VkDevice device, const void* data, size_t size,VkDeviceSize offset) {
-	void* mappedData;
-	VkResult result = vkMapMemory(device, memory, offset, size, 0, &mappedData);
-	CHECK_VK_RESULT(result, "vkMapMemory");
-	memcpy(mappedData, data, size);
-	vkUnmapMemory(device, memory);
+	memcpy(static_cast<char*>(mappedData) + offset, data, size);
 }
 void BufferAndMemory::CreateBuffer(VkPhysicalDevice physicalDevice, VkDevice logicalDevice, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryProperties) {
 	size = bufferSize;
@@ -48,11 +44,9 @@ void BufferAndMemory::CreateBuffer(VkPhysicalDevice physicalDevice, VkDevice log
 	CHECK_VK_RESULT(result,"vkBindBufferMemory");
 
 	// Zero init the buffer memory
-	void* mappedData;
 	result = vkMapMemory(logicalDevice, memory, 0, bufferSize, 0, &mappedData);
 	CHECK_VK_RESULT(result, "vkMapMemory");
 	memset(mappedData, -1, bufferSize);
-	vkUnmapMemory(logicalDevice, memory);
 
 	
 }
@@ -62,6 +56,10 @@ void BufferAndMemory::Cleanup(VkDevice logicalDevice) {
 		buffer = VK_NULL_HANDLE;
 	}
 	if (memory != VK_NULL_HANDLE) {
+		if (mappedData != nullptr) {
+			vkUnmapMemory(logicalDevice, memory);
+			mappedData = nullptr;
+		}
 		vkFreeMemory(logicalDevice, memory, nullptr);
 		memory = VK_NULL_HANDLE;
 	}
