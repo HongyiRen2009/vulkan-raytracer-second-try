@@ -28,6 +28,7 @@ namespace my_vulkan
 		alignas(16) vec2 jitter;
 		vec2 previousJitter;
 		alignas(16) vec3 sunPosition;
+		float time;
 
 	};
 	struct RaytracingUniformUpdateData {
@@ -38,6 +39,7 @@ namespace my_vulkan
 		ivec3 allChunksMax;
 		vec2 jitter;
 		vec3 sunPosition;
+		float time;
 
 	};
 
@@ -72,6 +74,7 @@ namespace my_vulkan
 			uniformData.previousJitter = uniformData.jitter;
 			uniformData.jitter = uniformUpdateData.jitter;
 			uniformData.sunPosition = uniformUpdateData.sunPosition;
+			uniformData.time = uniformUpdateData.time;
 		}
 		vec2 haltonSamples[64];
 		vec2 getJitter(uint32_t frameCounter) {

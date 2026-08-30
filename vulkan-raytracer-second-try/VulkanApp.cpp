@@ -125,6 +125,8 @@ void VulkanApp::CreateDescriptorPool() {
 			.allChunksMax = ChunkManager::allChunksMax,
 			.jitter = raytracingPipeline.getJitter(frameCounter),
 			.sunPosition = vec3(10000.0f, 10000.0f, 0.0f),
+			.time = static_cast<float>(glfwGetTime()),
+
 
 		};
 		RaytracingPushConstants pushConstants{

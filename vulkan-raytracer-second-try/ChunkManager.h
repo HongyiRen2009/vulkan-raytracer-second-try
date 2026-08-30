@@ -35,7 +35,7 @@ public:
 private:
 	std::mutex invalidChunksMutex;
 	int renderDistance = 16;
-	int renderDistanceHeight = 3;
+	int renderDistanceHeight = 2;
 	unsigned int seed;
 	vector<unique_ptr<Chunk>> chunks;
 	unordered_set<uint32_t> hashedChunkPositions;

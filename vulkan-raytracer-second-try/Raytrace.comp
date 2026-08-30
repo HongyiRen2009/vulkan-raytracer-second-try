@@ -53,6 +53,7 @@ layout(std140, binding = 8) uniform UniformBufferObject
     ivec3 allChunksMax;
     vec2 jitter;
     vec3 sunPos;
+    float time;
 } ubo;
 layout(binding=3) buffer ChunkSSBO
 {
@@ -72,6 +73,8 @@ layout(binding = 9, r16f) uniform readonly image2D previousDepthBuffer;
 const uint treeMaxDepth = 3;
 const uint32_t UINT32_MAX = 0xffffffffu;
 AncestorStack ancestorstack;
+const float PI = 3.1415926535897932384626433832795;
+const vec3 SUN_COLOR =  vec3(1.0, 0.95, 0.85);
 struct RaytraceResult {
     uint voxelValue;
     vec3 normal;
@@ -312,10 +315,63 @@ vec4 sampleVoxelTexture(uint voxelValue, vec3 hitPos, vec3 normal, float distanc
     
     return textureLod(voxelTextureArray, vec3(uv, layer), lod);
 }
-RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusionOnly, bool noReflect) {
+const float DRAG_MULT = 0.38;
+const int ITERATIONS_NORMAL = 16;
+// Calculates wave value and its derivative, 
+// for the wave direction, position in space, wave frequency and time
+vec2 wavedx(vec2 position, vec2 direction, float frequency, float timeshift) {
+  float x = dot(direction, position) * frequency + timeshift;
+  float wave = exp(sin(x) - 1.0);
+  float dx = wave * cos(x);
+  return vec2(wave, -dx);
+}
+
+float getwaves(vec2 position, int iterations)
+{
+    const float GOLDEN_ANGLE = 2.39996323;
+
+    float frequency = 0.7;
+    float timeMultiplier = 1.0;
+    float weight = 1.0;
+    float sum = 0.0;
+    float weightSum = 0.0;
+
+    for (int i = 0; i < iterations; ++i) {
+        float angle = float(i) * GOLDEN_ANGLE;
+        vec2 direction = vec2(cos(angle), sin(angle));
+        float phase = float(i) * 1.61803399;
+
+        vec2 wave = wavedx(
+            position,
+            direction,
+            frequency,
+            ubo.time * timeMultiplier + phase
+        );
+
+        position += direction * wave.y * weight * DRAG_MULT;
+        sum += wave.x * weight;
+        weightSum += weight;
+
+        weight *= 0.8;
+        frequency *= 1.324717957;
+        timeMultiplier *= 1.071773;
+    }
+
+    return sum / weightSum;
+}
+vec3 getNormal(vec2 pos, float e) {
+  vec2 ex = vec2(e, 0);
+  float H = getwaves(pos.xy, ITERATIONS_NORMAL);
+  vec3 a = vec3(pos.x, H, pos.y);
+  return normalize(
+    cross(
+      a - vec3(pos.x - e, getwaves(pos.xy - ex.xy, ITERATIONS_NORMAL), pos.y), 
+      a - vec3(pos.x, getwaves(pos.xy + ex.yx, ITERATIONS_NORMAL) , pos.y + e)
+    )
+  );
+}
+RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusionOnly, bool noReflect, float maxDistance) {
     const int MAX_STEPS = 1024;
-    // Every call is an independent ray. In particular, a shadow ray must not
-    // reuse the primary ray's direction-dependent traversal state.
     ancestorstack.stackCount = 0u;
     ancestorstack.lastChunkIndex = UINT32_MAX;
 
@@ -332,7 +388,6 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
     rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
     vec3 returnColor = vec3(1.0);
     bool inWater = false;
-    bool waterColorApplied = false;
     float pathDistance = 0.0;
     bool hitWater = false;
     vec3 waterHitPos = vec3(0.0);
@@ -340,14 +395,14 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
     float waterTHit = 0.0;
     bool passedThroughWater = false;
     for (int step_count = 0; step_count < MAX_STEPS; step_count++) {
-
+        
         ivec3 chunkPos = ivec3(
             floor(float(voxelPos.x) / float(ubo.CHUNK_SIZE)),
             floor(float(voxelPos.y) / float(ubo.CHUNK_SIZE)),
             floor(float(voxelPos.z) / float(ubo.CHUNK_SIZE))
         );
         ivec3 localPos = voxelPos - chunkPos * int(ubo.CHUNK_SIZE);
-
+        if(tCurrent>maxDistance) break;
         int chunkIndex = findChunk(chunkPos);
         if (chunkIndex < 0) break;
 
@@ -377,34 +432,44 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
             vec4 texColor = sampleVoxelTexture(res.voxelValue, rayHitPos, normal, rayDistance);
             if(res.voxelValue ==6){
                 passedThroughWater = true;
-                // Water does not block sunlight. Shadow rays only need an
-                // occlusion answer and must never execute material bounces.
-                if (occlusionOnly) {
-                    // Continue the DDA through this voxel.
-                }
                 if(pushConstants.isBeam==1) {
                     returnColor*=texColor.rgb;
                     return RaytraceResult(res.voxelValue, normal, tCurrent, vec4(returnColor, 1.0), rayHitPos, true, rayHitPos, normal, tCurrent, true);
                 }
-                else if (!occlusionOnly && !waterColorApplied) {
-                    vec3 waterColor = vec3( 0.851,0.36, 0.38);
-                    returnColor *= waterColor;
-                    waterColorApplied = true;
-                }
 
                 if(!occlusionOnly && !noReflect && !inWater) {
-                    // A ray beginning in water has not crossed a surface.
                     if (lastStepAxis < 0 && tCurrent <= 0.001) {
                         inWater = true;
                     }
                     else {
                     hitWater = true;
                     waterHitPos = rayHitPos;
-                    waterNormal = normal;
+vec3 geometricNormal = normal;
+
+vec3 waveNormal = geometricNormal.y > 0.5
+    ? getNormal(rayHitPos.xz, 0.001)
+    : geometricNormal;
+
+// Reduce bump-normal strength.
+waterNormal = normalize(mix(geometricNormal, waveNormal, 0.25));
+
+vec3 reflectedDir = reflect(rayDir, waterNormal);
+
+// A bump normal must not send the ray below the actual flat geometry.
+float reflectedHeight = dot(reflectedDir, geometricNormal);
+if (reflectedHeight < 0.02) {
+    reflectedDir = normalize(
+        reflectedDir +
+        geometricNormal * (0.02 - reflectedHeight)
+    );
+}
+
+rayDir = reflectedDir;
+
+// Offset from the real surface, not along the potentially unstable ray.
+rayOrigin = rayHitPos + geometricNormal * 0.02;
                     waterTHit = pathDistance + tCurrent;
                     inWater = true;
-                    rayDir = reflect(rayDir, normal);
-                    rayOrigin = rayHitPos + rayDir * 0.01;
                     pathDistance += tCurrent + 0.01;
                     ancestorstack.stackCount = 0u;
                     ancestorstack.lastChunkIndex = UINT32_MAX;
@@ -476,7 +541,80 @@ vec3 sampleSunDirection(vec3 sunDir, vec2 pixel, vec2 temporalJitter) {
         bitangent * disk.y * angularRadius
     );
 }
-vec3 shadeRayResult(RaytraceResult result, vec3 skyColor, vec3 sunDir,bool castShadows) {
+vec3 cosineHemisphere(vec3 normal, vec2 randomValue)
+{
+    float phi = 6.28318530718 * randomValue.x;
+    float radius = sqrt(randomValue.y);
+
+    vec3 localDirection = vec3(
+        radius * cos(phi),
+        sqrt(max(0.0, 1.0 - randomValue.y)),
+        radius * sin(phi)
+    );
+
+    vec3 helper = abs(normal.y) < 0.999
+        ? vec3(0.0, 1.0, 0.0)
+        : vec3(1.0, 0.0, 0.0);
+
+    vec3 tangent = normalize(cross(helper, normal));
+    vec3 bitangent = cross(normal, tangent);
+
+    return normalize(
+        tangent * localDirection.x +
+        normal * localDirection.y +
+        bitangent * localDirection.z
+    );
+}
+float radicalInverseVdC(uint bits)
+{
+    return float(bitfieldReverse(bits)) * 2.3283064365386963e-10;
+}
+float calculateAO(
+    vec3 hitPosition,
+    vec3 normal,
+    vec2 pixel,
+    vec2 temporalJitter
+) {
+    const int SAMPLE_COUNT = 4;
+    const float AO_RADIUS = 2.0;
+
+    float occlusion = 0.0;
+    vec3 origin = hitPosition + normal * 0.02;
+    // Rotate a stratified sequence instead of generating every sample
+    // independently. This covers the hemisphere much more evenly.
+    vec2 sequenceRotation = vec2(
+        hash12(pixel + temporalJitter * 113.0),
+        hash12(pixel.yx + temporalJitter * 271.0 + 19.0)
+    );
+
+    for (int i = 0; i < SAMPLE_COUNT; ++i) {
+        vec2 randomValue = fract(vec2(
+            (float(i) + 0.5) / float(SAMPLE_COUNT),
+            radicalInverseVdC(uint(i))
+        ) + sequenceRotation);
+
+        vec3 direction = cosineHemisphere(normal, randomValue);
+
+        RaytraceResult aoHit = raytrace(
+            origin,
+            direction,
+            0.0,
+            true,
+            true,
+            AO_RADIUS
+        );
+
+        if (aoHit.voxelValue != 0u) {
+            float distanceWeight = 1.0 - smoothstep(0.0, AO_RADIUS, aoHit.tHit);
+            occlusion += distanceWeight;
+        }
+    }
+
+    float ao = 1.0 - occlusion / float(SAMPLE_COUNT);
+    ao = pow(clamp(ao, 0.0, 1.0), 3);
+    return mix(0.01, 1.0, ao);
+}
+vec3 shadeRayResult(RaytraceResult result, vec3 skyColor, vec3 sunDir, vec2 pixel, bool castShadows, bool temporalAO) {
     if (result.voxelValue == 0u) return skyColor;
 
     vec3 normal = normalize(result.normal);
@@ -485,15 +623,119 @@ vec3 shadeRayResult(RaytraceResult result, vec3 skyColor, vec3 sunDir,bool castS
 
     if (diffuse > 0.0 && castShadows) {
         vec3 shadowOrigin = result.hitPos + normal * 0.002;
-        RaytraceResult sunRay = raytrace(shadowOrigin, sunDir, 0.0, true, true);
+        RaytraceResult sunRay = raytrace(shadowOrigin, sunDir, 0.0, true, true, 1000.0);
         sunVisible = (sunRay.voxelValue == 0u) ? 1.0 : 0.0;
     }
-
-    vec3 ambientLight = vec3(0.28, 0.30, 0.34);
-    vec3 directLight = vec3(1.0, 0.95, 0.85) * (0.85 * diffuse * sunVisible);
-    return result.color.rgb * (ambientLight + directLight);
+float ao = calculateAO(
+    result.hitPos,
+    normalize(result.normal),
+    pixel,
+    temporalAO ? ubo.jitter : vec2(0.0)
+);
+vec3 ambientLight = vec3(0.38, 0.40, 0.44);
+    vec3 directLight =SUN_COLOR * (0.85 * diffuse * sunVisible);
+    return result.color.rgb * (ambientLight + directLight) * ao;
 }
 
+vec3 aces_tonemap(vec3 color) {  
+  mat3 m1 = mat3(
+    0.59719, 0.07600, 0.02840,
+    0.35458, 0.90834, 0.13383,
+    0.04823, 0.01566, 0.83777
+  );
+  mat3 m2 = mat3(
+    1.60475, -0.10208, -0.00327,
+    -0.53108,  1.10813, -0.07276,
+    -0.07367, -0.00605,  1.07602
+  );
+  vec3 v = m1 * color;  
+  vec3 a = v * (v + 0.0245786) - 0.000090537;
+  vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+  return pow(clamp(m2 * (a / b), 0.0, 1.0), vec3(1.0 / 2.2));  
+}
+vec3 extra_cheap_atmosphere(vec3 raydir, vec3 sundir) {
+raydir.y = max(raydir.y, 0.0);
+  //sundir.y = max(sundir.y, -0.07);
+  float special_trick = 1.0 / (raydir.y * 1.0 + 0.1);
+  float special_trick2 = 1.0 / (sundir.y * 11.0 + 1.0);
+  float raysundt = pow(abs(dot(sundir, raydir)), 2.0);
+  float sundt = pow(max(0.0, dot(sundir, raydir)), 8.0);
+  float mymie = sundt * special_trick * 0.2;
+  vec3 suncolor = mix(vec3(1.0), max(vec3(0.0), vec3(1.0) - vec3(5.5, 13.0, 22.4) / 22.4), special_trick2);
+  vec3 bluesky= vec3(5.5, 13.0, 22.4) / 22.4 * suncolor;
+  vec3 bluesky2 = max(vec3(0.0), bluesky - vec3(5.5, 13.0, 22.4) * 0.002 * (special_trick + -6.0 * sundir.y * sundir.y));
+  bluesky2 *= special_trick * (0.24 + raysundt * 0.24);
+  bluesky2 *= (1.0 + 1.0 * pow(1.0 - raydir.y, 3.0));
+  bluesky2 = bluesky2 / (bluesky2 + vec3(1.0));
+  return bluesky2;
+}
+float DistributionGGX(vec3 N, vec3 H, float roughness) {
+	float a = roughness * roughness;
+	float a2 = a * a;
+	float NdotH = max(dot(N, H), 0.0);
+	float NdotH2 = NdotH * NdotH;
+	float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+	return a2 / (PI * denom * denom);
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness) {
+	float r = roughness + 1.0;
+	float k = (r * r) / 8.0;
+	return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+	float NdotV = max(dot(N, V), 0.0);
+	float NdotL = max(dot(N, L), 0.0);
+	float ggxV = GeometrySchlickGGX(NdotV, roughness);
+	float ggxL = GeometrySchlickGGX(NdotL, roughness);
+	return ggxV * ggxL;
+}
+
+vec3 FresnelSchlick(float cosTheta, vec3 F0) {
+	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+vec3 specular(vec3 N, vec3 L, vec3 V, float roughness) {
+	vec3 H = normalize(V + L);
+	vec3 F0 = vec3(0.02);
+
+	float D = DistributionGGX(N, H, roughness);
+	float G = GeometrySmith(N, V, L, roughness);
+	vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+	float NdotV = max(dot(N, V), 0.0);
+	float NdotL = max(dot(N, L), 0.0);
+	vec3 specular =  (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
+	return specular*SUN_COLOR*NdotL;
+}
+const vec3 SEA_BASE = vec3(0.18,0.09,0.0);
+const vec3 SEA_WATER_COLOR = vec3(0.6,0.9,0.8)*0.6;
+float diffuse(vec3 n,vec3 l,float p) {
+    return pow(dot(n,l) * 0.4 + 0.6,p);
+}
+vec3 applyWaterAttenuation(vec3 incidentColor,vec3 waterColor, float waterDistance) {
+    // Beer-Lambert extinction per world-space block. Red light is absorbed
+    // fastest, which shifts distant objects toward blue/green.
+    const vec3 ABSORPTION = vec3(0.08, 0.05, 0.012)*3;
+
+    float distanceInWater = max(waterDistance, 0.0);
+    vec3 transmittance = exp(-ABSORPTION * distanceInWater);
+    return mix(waterColor, incidentColor, transmittance);
+}
+
+vec3 colorWater(vec3 refractedColor, vec3 reflectedColor,vec3 normal,float waterDistance, vec3 sunDir, vec3 viewDir, vec2 pixel) {
+      vec3 waterColor = SEA_BASE + diffuse(normal, sunDir, 80.0) * SEA_WATER_COLOR * 0.12; 
+    vec3 attenuatedRefractedColor = applyWaterAttenuation(refractedColor,waterColor, waterDistance);
+    
+    
+    
+    float cosTheta = clamp(dot(normal, -viewDir), 0.0, 1.0);
+    const float WATER_F0 = 0.0204;
+    float fresnel = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - cosTheta, 5.0);
+    vec3 color = mix(attenuatedRefractedColor, reflectedColor, fresnel);
+    color += specular(normal, sunDir, -viewDir, 0.2)*3;
+    return color;
+}
 void main()
 {  
 ancestorstack.stackCount = 0u;
@@ -510,8 +752,7 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
     if(pushConstants.isBeam==1){
         jitteredUV =vec2(pixel) / vec2(size) * vec2(pushConstants.beamResolutionDivisor);
     } else {
-        // A zero depth is the persistent water marker. Once this pixel's ray
-        // traversed water, keep its primary ray exactly on the pixel center.
+        
         float previousDepth = imageLoad(previousDepthBuffer, pixel).r;
         if (previousDepth != 0.0) {
             jitteredUV += ubo.jitter.xy / vec2(size);
@@ -530,7 +771,7 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
     vec3 rayOrigin = ubo.cameraPos;
     
     if(pushConstants.isBeam==1) {
-        RaytraceResult result = raytrace(rayOrigin, rayDir, 0.0, false, false);
+        RaytraceResult result = raytrace(rayOrigin, rayDir, 0.0, false, false, 1000.0);
         if(result.voxelValue != 0u) {
             imageStore(beamImage, pixel, vec4(result.tHit, 0.0, 0.0, 1.0));
         } else {
@@ -551,13 +792,15 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
             beamT = cornerBeamTs[i];
         }
     }
-    vec3 skyColor = vec3(1.0, 0.749, 0.0);
+    vec3 sunDir = normalize(vec3(0.5, 0.5, 0.5));
+    vec3 skyColor = extra_cheap_atmosphere(rayDir,sunDir).bgr;
     float startT = (beamT >= 0.0) ? beamT-1.0 : 0.0;
-    RaytraceResult result = raytrace(rayOrigin, rayDir, startT, false, false);
+    RaytraceResult result = raytrace(rayOrigin, rayDir, startT, false, false, 1000.0);
     RaytraceResult refractedResult = RaytraceResult(0u, vec3(0.0), 0.0, vec4(0.0), vec3(0.0), false, vec3(0.0), vec3(0.0), 0.0, false);
-    vec3 shadowDir = normalize(vec3(0.5, 0.5, 0.0));
-    shadowDir = sampleSunDirection(normalize(shadowDir), vec2(pixel), ubo.jitter.xy);
+    vec3 shadowDir = sampleSunDirection(normalize(sunDir), vec2(pixel), ubo.jitter.xy);
+    vec3 finalColor;
     if (result.hitWater) {
+		vec3 waterNormal = result.waterNormal;
 //        const float AIR_TO_WATER_ETA = 1.0 / 1.333;
 //        vec3 refractedDir = refract(rayDir, result.waterNormal, AIR_TO_WATER_ETA);
 //        bool totalInternalReflection = dot(refractedDir, refractedDir) < 1e-8;
@@ -565,33 +808,43 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
 //            vec3 refractedOrigin = result.waterHitPos + refractedDir * 0.01;
 //            refractedResult = raytrace(refractedOrigin, refractedDir, 0.0, false, true);
 //        }
-        refractedResult = raytrace(result.waterHitPos + result.waterNormal * 0.01, rayDir, 0.0, false, true);
-        vec3 reflectedColor = shadeRayResult(result, skyColor, shadowDir,false);
-        vec3 refractedColor = shadeRayResult(refractedResult, skyColor, shadowDir,true);
-        float cosTheta = clamp(dot(-rayDir, result.waterNormal), 0.0, 1.0);
-        const float WATER_F0 = 0.0204;
-        float fresnel = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - cosTheta, 5.0);
-        vec3 litColor = mix(refractedColor, reflectedColor, fresnel);
+        // Move into the water, not back into the air side of the interface.
+        refractedResult = raytrace(result.waterHitPos + rayDir * 0.01, rayDir, 0.0, false, true, 1000.0);
+        vec3 reflectedSkyColor = extra_cheap_atmosphere(reflect(rayDir, waterNormal), sunDir).bgr;
+        // Water bypasses TAA, so keep its AO sequence stable instead of
+        // introducing frame-to-frame shimmer that cannot be accumulated.
+        vec3 reflectedColor = shadeRayResult(result, reflectedSkyColor, shadowDir, pixel, false, false);
+        vec3 refractedColor = shadeRayResult(refractedResult, skyColor, shadowDir, pixel, true, false);
 
-        imageStore(img, pixel, vec4(litColor, 1.0));
-        // Depth and motion belong to the visible water surface, not either
-        // secondary ray's eventual hit.
+        // This secondary ray begins at the surface, so its hit distance is
+        // the distance traveled through the water to the refracted hit.
+        float waterDistance = refractedResult.voxelValue != 0u
+            ? refractedResult.tHit
+            : 0.0;
+        finalColor = colorWater(refractedColor, reflectedColor, waterNormal, waterDistance, sunDir, rayDir, vec2(pixel));
         result.tHit = result.waterTHit;
     }
     else if (result.voxelValue != 0u) {
-        vec3 litColor = shadeRayResult(result, skyColor, shadowDir,true);
-        imageStore(img, pixel, vec4(litColor, 1.0));
+        vec3 litColor = shadeRayResult(result, skyColor, shadowDir, pixel, true, true);
+        if (result.passedThroughWater) {
+            // Rays beginning underwater do not cross the reflective surface,
+            // but they still lose light over the path to the visible object.
+                  vec3 waterColor = SEA_BASE + diffuse(result.waterNormal, sunDir, 80.0) * SEA_WATER_COLOR * 0.12; 
+            litColor = applyWaterAttenuation(litColor,waterColor, result.tHit);
+        }
+        finalColor = litColor;
 
     }
     else {
         result.tHit=999.0;
-        imageStore(img, pixel, vec4(skyColor, 1.0));
+        finalColor = skyColor;
     }
+    imageStore(img, pixel, vec4(aces_tonemap(finalColor), 1.0));
     vec4 prevClip = ubo.previousProj * ubo.previousView * vec4(rayOrigin + rayDir * result.tHit, 1.0);
     vec2 prevNDC  = prevClip.xy / prevClip.w;
     vec2 prevUV   = vec2(prevNDC.x, -prevNDC.y) * 0.5 + 0.5;
     imageStore(velocityBuffer, pixel, vec4(prevUV - currentUV, 0.0, 1.0));
-    if(result.passedThroughWater){
+    if(result.passedThroughWater || result.voxelValue == 0u){
            imageStore(depthBuffer, pixel, vec4(0.0, 0.0, 0.0, 1.0));
     }
     else{

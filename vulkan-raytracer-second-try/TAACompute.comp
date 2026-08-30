@@ -67,10 +67,10 @@ void main() {
         // Sample from reprojected location
         prevData = texture(previousFrame, prevUV);
         prevColor = prevData.rgb;
+        frameCount = prevData.a * maxFrameCount;
         if((frameCount<32.0&&depth>500)||TAAPushConstants.cameraMoved==1u) {
             prevColor = clamp(prevColor, neighborhoodMin - vec3(0.02), neighborhoodMax + vec3(0.02));
         }
-        frameCount = prevData.a * maxFrameCount;
         if(frameCount>=maxFrameCount&&TAAPushConstants.cameraMoved == 1) {
             // If camera moved and history is old, reset it
             frameCount = maxFrameCount-1.0;
