@@ -264,8 +264,12 @@ namespace my_vulkan
 			raytracerUniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(RaytracingUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 			taaUniformBuffers[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(TAAUniformData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 			chunkSSBO[i].CreateBuffer(physicalDevice, logicalDevice, sizeof(ChunkData) * 10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 512 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT); // 512 MB for voxel data
-			oneNodeSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 512 * 1024 * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+			voxelSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 512 * 1024 * 1024,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			oneNodeSSBO[i].CreateBuffer(physicalDevice, logicalDevice, 512 * 1024 * 1024,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 		}
 	}
 	void FrameData::Cleanup(VkCommandPool commandPool) {

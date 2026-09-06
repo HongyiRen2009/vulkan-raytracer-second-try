@@ -39,6 +39,7 @@ void VulkanApp::Init(const char* AppName, GLFWwindow* window, Camera* camera) {
 		}
 	}
 }
+
 void VulkanApp::CreateCopyCommandBuffer() {
 	VkCommandBufferAllocateInfo allocInfo{
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -160,8 +161,8 @@ void VulkanApp::CreateDescriptorPool() {
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			0, 1, &beamPreComputeBarrier, 0, nullptr, 0, nullptr);
 
-		uint32_t beamGroupCountX = (vulkanCore.surfaceExtent.width / FrameData::beamResolutionDivider + 15) / 16;
-		uint32_t beamGroupCountY = (vulkanCore.surfaceExtent.height / FrameData::beamResolutionDivider + 15) / 16;
+		uint32_t beamGroupCountX = (vulkanCore.surfaceExtent.width / FrameData::beamResolutionDivider + 7) / 8;
+		uint32_t beamGroupCountY = (vulkanCore.surfaceExtent.height / FrameData::beamResolutionDivider + 7) / 8;
 		raytracingPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.raytracerDescriptorSet[frameIndex], beamGroupCountX, beamGroupCountY, 1, &pushConstants);
 
 		VkMemoryBarrier beamToFullBarrier{
@@ -175,8 +176,8 @@ void VulkanApp::CreateDescriptorPool() {
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			0, 1, &beamToFullBarrier, 0, nullptr, 0, nullptr);
 
-		uint32_t fullGroupCountX = (vulkanCore.surfaceExtent.width + 15) / 16;
-		uint32_t fullGroupCountY = (vulkanCore.surfaceExtent.height + 15) / 16;
+		uint32_t fullGroupCountX = (vulkanCore.surfaceExtent.width + 7) / 8;
+		uint32_t fullGroupCountY = (vulkanCore.surfaceExtent.height + 7) / 8;
 		pushConstants.isBeam = 0u;
 		raytracingPipeline.RecordCommandBuffer(frameData.commandBuffers[frameIndex], frameData.raytracerDescriptorSet[frameIndex], fullGroupCountX, fullGroupCountY, 1, &pushConstants);
 
@@ -277,6 +278,14 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 	queue->WaitIdle();
 	const vector<unique_ptr<Chunk>>& chunks = chunkManager->GetChunks();
 	VkDevice logicalDevice = vulkanCore.GetLogicalDevice();
+	struct PendingCopy {
+		VkDeviceSize sourceOffset;
+		VkDeviceSize destinationOffset;
+		VkDeviceSize size;
+		bool leafData;
+	};
+	vector<PendingCopy> pendingCopies;
+	vector<uint8_t> stagingData;
 
 	for (auto& chunk : chunks) {
 		if (!chunk->isDirty) continue;
@@ -296,27 +305,71 @@ void VulkanApp::UpdateChunkSSBO(ChunkManager* chunkManager) {
 
 		for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
 			frameData.chunkSSBO[frameIdx].AddData(logicalDevice, &data, sizeof(ChunkData), slotIndex * sizeof(ChunkData));
+		}
 
-			if (!chunk->nodePool.empty()) {
-				frameData.voxelSSBO[frameIdx].AddData(
-					logicalDevice,
-					chunk->nodePool.data(),
-					chunk->nodePool.size() * sizeof(Node),
-					chunk->gpuSlot * sizeof(Node)
-				);
-			}
+		if (!chunk->nodePool.empty()) {
+			const VkDeviceSize byteCount = chunk->nodePool.size() * sizeof(Node);
+			const VkDeviceSize sourceOffset = stagingData.size();
+			const uint8_t* bytes = reinterpret_cast<const uint8_t*>(chunk->nodePool.data());
+			stagingData.insert(stagingData.end(), bytes, bytes + byteCount);
+			pendingCopies.push_back({ sourceOffset, chunk->gpuSlot * sizeof(Node), byteCount, false });
+		}
 
-			if (hasLeafArray) {
-				frameData.oneNodeSSBO[frameIdx].AddData(
-					logicalDevice,
-					chunk->oneNodePool.data(),
-					chunk->oneNodePool.size() * sizeof(unsigned int),
-					chunk->oneNodeSlot * sizeof(unsigned int)
-				);
-			}
+		if (hasLeafArray) {
+			const VkDeviceSize byteCount = chunk->oneNodePool.size() * sizeof(unsigned int);
+			const VkDeviceSize sourceOffset = stagingData.size();
+			const uint8_t* bytes = reinterpret_cast<const uint8_t*>(chunk->oneNodePool.data());
+			stagingData.insert(stagingData.end(), bytes, bytes + byteCount);
+			pendingCopies.push_back({ sourceOffset, chunk->oneNodeSlot * sizeof(unsigned int), byteCount, true });
 		}
 
 		chunk->isDirty = false;
+	}
+
+	if (!stagingData.empty()) {
+		BufferAndMemory stagingBuffer;
+		stagingBuffer.CreateBuffer(
+			vulkanCore.GetPhysicalDevices()->GetSelectedPhysicalDevice().device,
+			logicalDevice,
+			stagingData.size(),
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		stagingBuffer.AddData(logicalDevice, stagingData.data(), stagingData.size());
+
+		vkResetCommandBuffer(copyCommandBuffer, 0);
+		BeginCommandBuffer(copyCommandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+		for (const PendingCopy& pendingCopy : pendingCopies) {
+			VkBufferCopy copyRegion{
+				.srcOffset = pendingCopy.sourceOffset,
+				.dstOffset = pendingCopy.destinationOffset,
+				.size = pendingCopy.size,
+			};
+			for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
+				VkBuffer destination = pendingCopy.leafData
+					? frameData.oneNodeSSBO[frameIdx].buffer
+					: frameData.voxelSSBO[frameIdx].buffer;
+				vkCmdCopyBuffer(copyCommandBuffer, stagingBuffer.buffer, destination, 1, &copyRegion);
+			}
+		}
+		VkMemoryBarrier uploadBarrier{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.pNext = nullptr,
+			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		};
+		vkCmdPipelineBarrier(
+			copyCommandBuffer,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0,
+			1, &uploadBarrier,
+			0, nullptr,
+			0, nullptr);
+		VkResult result = vkEndCommandBuffer(copyCommandBuffer);
+		CHECK_VK_RESULT(result, "vkEndCommandBuffer");
+		queue->SubmitSync(copyCommandBuffer);
+		queue->WaitIdle();
+		stagingBuffer.Cleanup(logicalDevice);
 	}
 }
 void VulkanApp::InvalidateChunksInGPU(vector<uint32_t> slotIndices) {
@@ -326,7 +379,9 @@ void VulkanApp::InvalidateChunksInGPU(vector<uint32_t> slotIndices) {
 		ChunkData data = {
 			.chunkPos = glm::vec3(0.0f),
 			.gpuSlot = 0,
-			.valid = 0
+			// Preserve probe chains when an occupied open-addressing slot is
+			// removed. Zero is reserved for a slot that was never occupied.
+			.valid = 2
 		};
 		for (int frameIdx = 0; frameIdx < MAX_FRAMES_IN_FLIGHT; frameIdx++) {
 			frameData.chunkSSBO[frameIdx].AddData(vulkanCore.GetLogicalDevice(), &data, sizeof(ChunkData), slotIndices[i] * sizeof(ChunkData));

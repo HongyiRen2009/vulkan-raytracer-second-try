@@ -43,10 +43,13 @@ void BufferAndMemory::CreateBuffer(VkPhysicalDevice physicalDevice, VkDevice log
 	result = vkBindBufferMemory(logicalDevice, buffer, memory, 0);
 	CHECK_VK_RESULT(result,"vkBindBufferMemory");
 
-	// Zero init the buffer memory
-	result = vkMapMemory(logicalDevice, memory, 0, bufferSize, 0, &mappedData);
-	CHECK_VK_RESULT(result, "vkMapMemory");
-	memset(mappedData, -1, bufferSize);
+	// Device-local buffers are populated through a staging copy and cannot be
+	// mapped on discrete GPUs. Keep host-visible buffers persistently mapped.
+	if ((memoryProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0) {
+		result = vkMapMemory(logicalDevice, memory, 0, bufferSize, 0, &mappedData);
+		CHECK_VK_RESULT(result, "vkMapMemory");
+		memset(mappedData, -1, bufferSize);
+	}
 
 	
 }

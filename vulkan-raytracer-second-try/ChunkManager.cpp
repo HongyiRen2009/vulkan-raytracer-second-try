@@ -7,8 +7,8 @@ ivec3 ChunkManager::allChunksMax = ivec3(0);
 
 ChunkManager::ChunkManager() {
 	chunkGenerationThread = std::thread(&ChunkManager::chunkGenerationWorker, this);
-	chunkFreeList.init(512 * 1024 * 1024 / sizeof(Node)); // 64 MB
-	oneNodeFreeList.init(512 * 1024 * 1024 / sizeof(unsigned int)); // 64 MB
+	chunkFreeList.init(256 * 1024 * 1024 / sizeof(Node)); // 64 MB
+	oneNodeFreeList.init(256 * 1024 * 1024 / sizeof(unsigned int)); // 64 MB
 	noise.SetNoiseType(FastNoiseLite::NoiseType::NoiseType_Perlin);
 	noise.SetFractalType(FastNoiseLite::FractalType::FractalType_FBm);
 	noise.SetFractalOctaves(5);

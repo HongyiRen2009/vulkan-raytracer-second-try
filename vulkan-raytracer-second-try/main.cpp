@@ -11,7 +11,7 @@ GLFWwindow* window;
 VulkanApp vulkanApp;
 Camera* camera;
 ChunkManager chunkManager;
-unsigned int seed = 42;
+unsigned int seed = 50;
 ivec2 lastCameraChunkPos = ivec2(0);
 vec2 lastCameraLoadPos = vec2(0);
 bool initalizedFirstChunks = false;

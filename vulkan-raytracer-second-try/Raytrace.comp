@@ -21,16 +21,18 @@ struct Node {
     uint32_t firstChildIndex;
 };
 struct nodeInfo{
-    ivec3 nodePos;
-    uint depth;
+    uint packedNodePosAndDepth;
     uint nodeIndex;
     };
 struct AncestorStack{
     uint32_t stackCount;
-    nodeInfo nodes[8];
+    nodeInfo nodes[3];
     uint lastChunkIndex;
 };
-layout(local_size_x = 16, local_size_y = 16) in;
+// Ray traversal has high register pressure and heavy control-flow divergence.
+// Smaller groups give the scheduler more freedom and reduce the number of
+// unrelated rays tied together in one workgroup.
+layout(local_size_x = 8, local_size_y = 8) in;
 layout(push_constant) uniform PushConstants {
     uint beamResolutionDivisor;
     uint computeToggle;
@@ -71,7 +73,6 @@ layout (binding = 5) buffer OneNodeBuffer{
 layout(binding=6) uniform sampler2DArray voxelTextureArray;
 layout(binding = 7, rg16f) uniform image2D velocityBuffer;
 layout(binding = 9, r16f) uniform readonly image2D previousDepthBuffer;
-
 const uint treeMaxDepth = 3;
 const uint32_t UINT32_MAX = 0xffffffffu;
 AncestorStack ancestorstack;
@@ -81,12 +82,7 @@ struct RaytraceResult {
     uint voxelValue;
     vec3 normal;
     float tHit;
-    vec4 color;
-    vec3 hitPos;
-    bool hitWater;
-    vec3 waterHitPos;
-    vec3 waterNormal;
-    float waterTHit;
+    vec3 color;
     bool passedThroughWater;
 };
 uint hashChunkPos(ivec3 pos) {
@@ -104,6 +100,16 @@ uint hashChunkPos(ivec3 pos) {
 
     return hash % 10000; 
 }
+uint getFaceTextureLayer(uint id, vec3 normal) {
+    switch (id) {
+        case 1u: return normal.y > 0.5 ? 0u :
+                        normal.y < -0.5 ? 1u : 4u; // Grass
+        case 2u: return 1u;                       // Dirt
+        case 3u: return 3u;                       // Stone
+        case 4u: return abs(normal.y) > 0.5 ? 5u : 2u;
+        default: return id >= 5u && id <= 9u ? id + 1u : 0u;
+    }
+}
 uint normalToFaceIndex(vec3 normal) {
     if(normal.z>0.5) return 0u;
     if(normal.z<-0.5) return 1u;
@@ -120,7 +126,13 @@ int findChunk(ivec3 chunkPos) {
         uint index = (hash + i) % 10000u;
         
 
-        if (chunkSSBO.chunkData[index].valid==1u&&ivec3(chunkSSBO.chunkData[index].chunkPos) == chunkPos) {
+        uint slotState = chunkSSBO.chunkData[index].valid;
+        if (slotState == 0u) {
+            // Never-used slots terminate an open-addressing lookup. Deleted
+            // slots use the tombstone state (2) and must continue probing.
+            return -1;
+        }
+        if (slotState == 1u && ivec3(chunkSSBO.chunkData[index].chunkPos) == chunkPos) {
             return int(index);
         }
     }
@@ -133,18 +145,20 @@ bool isPosInNode(ivec3 pos,ivec3 nodePos, uint depth){
     uint nodeSize = depthToStepSize(depth);
     return all(greaterThanEqual(pos, nodePos)) && all(lessThan(pos, nodePos + ivec3(int(nodeSize))));
 }
-traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uint oneNodeBaseIdx, uint startDepth,float tCurrent,vec3 rayDir) {
-    if(pushConstants.isBeam==1&&tCurrent>400) {
-        return traverseResult(1u, 0u);
-    }
+uint packNodePosAndDepth(vec3 nodePos, uint depth){
+    return (uint(nodePos.x) & 0x3FFu) | ((uint(nodePos.y) & 0x3FFu) << 10u) | ((uint(nodePos.z) & 0x3FFu) << 20u) | ((depth & 0x3u) << 30u);
+}
+uint unpackNodePosAndDepth(uint packedNodePosAndDepth, out ivec3 nodePos){
+    nodePos.x = int(packedNodePosAndDepth & 0x3FFu);
+    nodePos.y = int((packedNodePosAndDepth >> 10u) & 0x3FFu);
+    nodePos.z = int((packedNodePosAndDepth >> 20u) & 0x3FFu);
+    return (packedNodePosAndDepth >> 30u) & 0x3u; // depth
+}
+traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uint oneNodeBaseIdx, uint startDepth, uint dirBase) {
     Node currentNode = voxelSSBO.nodes[nodeIdx];
-        ivec3 voxelDir = ivec3(sign(rayDir.x + 1e-6), sign(rayDir.y + 1e-6), sign(rayDir.z + 1e-6));
-    uint dirIndex = (uint((voxelDir.x + 1) >> 1) << 2) |
-                    (uint((voxelDir.y + 1) >> 1) << 1) |
-                     uint((voxelDir.z + 1) >> 1);
-    uint dirBase = dirIndex << 6; // *64
+
     for (int level = int(startDepth) - 1; level >= 0; --level) {
-        if (currentNode.mask == 0ul) return traverseResult(0u, uint(level));
+        if (currentNode.mask == 0ul) return traverseResult(0u, uint(level + 1));
         if (currentNode.blockId != 0u) return traverseResult(currentNode.blockId, uint(level + 1));
 
 
@@ -154,10 +168,13 @@ traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uin
         uvec3 voxelLocalPos = (uvec3(localPos) >> uint(level * 2)) & uvec3(3u);
 
         uint posIndex = voxelLocalPos.x * 16u + voxelLocalPos.y * 4u + voxelLocalPos.z;
-        uint64_t directionMask = ubo.directionMasks[dirBase + posIndex];
-        if((currentNode.mask&directionMask)==0u) {
-            return traverseResult(0u, uint(level));
-        }
+//        uint64_t directionMask = ubo.directionMasks[dirBase + posIndex];
+//        if((currentNode.mask&directionMask)==0u) {
+//            // No occupied child exists in the ray-facing octant of this
+//            // node. The ray can leave the entire parent, not just the child
+//            // containing its current position.
+//            return traverseResult(0u, uint(level + 1));
+//        }
         }
         uvec3 child = (uvec3(localPos) >> uint(level * 2)) & uvec3(3u);
         uint bitPos = child.x * 16u + child.y * 4u + child.z;
@@ -178,15 +195,15 @@ traverseResult traverseTree(uint nodeIdx, ivec3 localPos, uint chunkBaseIdx, uin
         currentNode = voxelSSBO.nodes[childIdx];
 
         ivec3 nodeOrigin = (localPos >> (level * 2)) << (level * 2);
-        if (ancestorstack.stackCount < 8u) {
-            ancestorstack.nodes[ancestorstack.stackCount] = nodeInfo(nodeOrigin, uint(level), childIdx);
+        if (ancestorstack.stackCount < 3u) {
+            ancestorstack.nodes[ancestorstack.stackCount] = nodeInfo(packNodePosAndDepth(vec3(nodeOrigin), uint(level)), childIdx);
             ancestorstack.stackCount++;
         }
     }
 
     return traverseResult(currentNode.blockId, 0u);
 }
-traverseResult getVoxel(uint chunkIndex, ivec3 localPos,float tCurrent,vec3 rayDir) {
+traverseResult getVoxel(uint chunkIndex, ivec3 localPos, uint dirBase) {
     if (localPos.x < 0 || localPos.x >= int(ubo.CHUNK_SIZE) ||
         localPos.y < 0 || localPos.y >= int(ubo.CHUNK_SIZE) ||
         localPos.z < 0 || localPos.z >= int(ubo.CHUNK_SIZE)) {
@@ -206,21 +223,23 @@ traverseResult getVoxel(uint chunkIndex, ivec3 localPos,float tCurrent,vec3 rayD
     }
 
     if (ancestorstack.stackCount == 0u) {
-        ancestorstack.nodes[0] = nodeInfo(ivec3(0), rootDepth, rootNodeIdx);
+        ancestorstack.nodes[0] = nodeInfo(packNodePosAndDepth(vec3(0), rootDepth), rootNodeIdx);
         ancestorstack.stackCount = 1u;
     }
 
     while (ancestorstack.stackCount > 0u) {
         nodeInfo current = ancestorstack.nodes[ancestorstack.stackCount - 1u];
-        if (isPosInNode(localPos, current.nodePos, current.depth)) {
-            return traverseTree(current.nodeIndex, localPos, rootNodeIdx, oneNodeRootIdx, current.depth,tCurrent,rayDir);
+        ivec3 nodePos;
+        uint depth = unpackNodePosAndDepth(current.packedNodePosAndDepth, nodePos);
+        if (isPosInNode(localPos, nodePos, depth)) {
+            return traverseTree(current.nodeIndex, localPos, rootNodeIdx, oneNodeRootIdx, depth, dirBase);
         }
         ancestorstack.stackCount--;
     }
 
-    ancestorstack.nodes[0] = nodeInfo(ivec3(0), rootDepth, rootNodeIdx);
+    ancestorstack.nodes[0] = nodeInfo(packNodePosAndDepth(vec3(0), rootDepth), rootNodeIdx);
     ancestorstack.stackCount = 1u;
-    return traverseTree(rootNodeIdx, localPos, rootNodeIdx, oneNodeRootIdx, rootDepth,tCurrent,rayDir);
+    return traverseTree(rootNodeIdx, localPos, rootNodeIdx, oneNodeRootIdx, rootDepth, dirBase);
 }
 vec2 getUVForFace(vec3 hitPos, vec3 normal) {
     vec3 localHit = hitPos - floor(hitPos);
@@ -239,11 +258,11 @@ vec2 getUVForFace(vec3 hitPos, vec3 normal) {
     return uv;
 }
 
-uint getFaceTextureLayer(uint voxelValue, vec3 normal) {
-    uint face = normalToFaceIndex(normal);
-    blockData b = ubo.blockDataArray[voxelValue];
-    return (face < 4u) ? b.face0123[face] : b.face45pad[face - 4u];
-}
+//uint getFaceTextureLayer(uint voxelValue, vec3 normal) {
+//    uint face = normalToFaceIndex(normal);
+//    blockData b = ubo.blockDataArray[voxelValue];
+//    return (face < 4u) ? b.face0123[face] : b.face45pad[face - 4u];
+//}
 float chunkAABBIntersection(vec3 rayOrigin, vec3 rayDir, vec3 invDir){
     
     vec3 t1 = (vec3(ubo.allChunksMin) - rayOrigin) * invDir;
@@ -276,38 +295,66 @@ int getAABBEntryAxis(vec3 rayOrigin, vec3 rayDir, vec3 invDir) {
     if (tmin.y >= tmin.z) return 1;
     return 2;
 }
-void rebuildDDAForStepSize(
+uint directionMaskBase(vec3 rayDir) {
+    uint directionIndex = (rayDir.x >= 0.0 ? 4u : 0u) |
+                          (rayDir.y >= 0.0 ? 2u : 0u) |
+                          (rayDir.z >= 0.0 ? 1u : 0u);
+    return directionIndex << 6;
+}
+
+ivec3 rayVoxelAt(vec3 rayOrigin, vec3 rayDir, float tCurrent) {
+    // Select the voxel just beyond a boundary. This is only needed when a ray
+    // starts or changes direction; hierarchical steps use integer node bounds.
+    return ivec3(floor(rayOrigin + rayDir * tCurrent + sign(rayDir) * 1e-3));
+}
+
+void advanceToNodeExit(
     vec3 rayOrigin,
     vec3 rayDir,
-    float tCurrent,
-    uint stepSize,
-    out ivec3 voxelPos,
-    out vec3 tMax,
-    out vec3 tDelta
+    vec3 invDir,
+    uint nodeDepth,
+    inout ivec3 voxelPos,
+    inout float tCurrent,
+    out int exitAxis
 ) {
-    float s = float(stepSize);
-    vec3 p = rayOrigin + rayDir * tCurrent;
+    // Each tree level covers 4 cells per axis, so an aligned node is found by
+    // clearing two coordinate bits per level. This is the 4^3-tree analogue
+    // of the parametric node-exit step in Laine/Karras SVO traversal.
+    uint coordinateShift = nodeDepth * 2u;
+    ivec3 nodeMin = (voxelPos >> coordinateShift) << coordinateShift;
+    int nodeSize = int(1u << coordinateShift);
+    ivec3 nodeMax = nodeMin + ivec3(nodeSize);
 
+    vec3 exitPlane = vec3(
+        rayDir.x > 0.0 ? nodeMax.x : nodeMin.x,
+        rayDir.y > 0.0 ? nodeMax.y : nodeMin.y,
+        rayDir.z > 0.0 ? nodeMax.z : nodeMin.z
+    );
+    vec3 tExit = (exitPlane - rayOrigin) * invDir;
+    if (abs(rayDir.x) < 1e-20) tExit.x = 1e30;
+    if (abs(rayDir.y) < 1e-20) tExit.y = 1e30;
+    if (abs(rayDir.z) < 1e-20) tExit.z = 1e30;
 
-    p += sign(rayDir) * 1e-3;
+    if (tExit.x <= tExit.y && tExit.x <= tExit.z) {
+        tCurrent = max(tCurrent, tExit.x);
+        exitAxis = 0;
+    } else if (tExit.y <= tExit.z) {
+        tCurrent = max(tCurrent, tExit.y);
+        exitAxis = 1;
+    } else {
+        tCurrent = max(tCurrent, tExit.z);
+        exitAxis = 2;
+    }
 
-    vec3 cellMin = floor(p / s) * s;
-    vec3 cellMax = cellMin + vec3(s);
-
-    voxelPos = ivec3(cellMin);
-
-    vec3 nextBoundary;
-    nextBoundary.x = (rayDir.x > 0.0) ? cellMax.x : cellMin.x;
-    nextBoundary.y = (rayDir.y > 0.0) ? cellMax.y : cellMin.y;
-    nextBoundary.z = (rayDir.z > 0.0) ? cellMax.z : cellMin.z;
-
-    tMax.x = (rayDir.x != 0.0) ? (nextBoundary.x - rayOrigin.x) / rayDir.x : 1e30;
-    tMax.y = (rayDir.y != 0.0) ? (nextBoundary.y - rayOrigin.y) / rayDir.y : 1e30;
-    tMax.z = (rayDir.z != 0.0) ? (nextBoundary.z - rayOrigin.z) / rayDir.z : 1e30;
-
-    tDelta.x = (rayDir.x != 0.0) ? abs(s / rayDir.x) : 1e30;
-    tDelta.y = (rayDir.y != 0.0) ? abs(s / rayDir.y) : 1e30;
-    tDelta.z = (rayDir.z != 0.0) ? abs(s / rayDir.z) : 1e30;
+    // Reconstruct all three coordinates once at the exit. Explicitly set
+    // every crossed face so negative rays and edge/corner ties cannot remain
+    // in the node because of floating-point rounding.
+    float positionBias = max(1e-4, abs(tCurrent) * 2e-7);
+    voxelPos = ivec3(floor(rayOrigin + rayDir * (tCurrent + positionBias)));
+    float tieTolerance = max(1e-5, abs(tCurrent) * 4e-7);
+    if (tExit.x <= tCurrent + tieTolerance) voxelPos.x = rayDir.x > 0.0 ? nodeMax.x : nodeMin.x - 1;
+    if (tExit.y <= tCurrent + tieTolerance) voxelPos.y = rayDir.y > 0.0 ? nodeMax.y : nodeMin.y - 1;
+    if (tExit.z <= tCurrent + tieTolerance) voxelPos.z = rayDir.z > 0.0 ? nodeMax.z : nodeMin.z - 1;
 }
 vec4 sampleVoxelTexture(uint voxelValue, vec3 hitPos, vec3 normal, float distance) {
     vec2 uv = getUVForFace(hitPos, normal);
@@ -358,7 +405,6 @@ float getwaves(vec2 position, int iterations)
         frequency *= 1.324717957;
         timeMultiplier *= 1.071773;
     }
-
     return sum / weightSum;
 }
 vec3 getNormal(vec2 pos,int octaves, float e) {
@@ -372,42 +418,74 @@ vec3 getNormal(vec2 pos,int octaves, float e) {
     )
   );
 }
-RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusionOnly, bool noReflect, float maxDistance) {
-    const int MAX_STEPS = 1024;
+float raytraceAO(vec3 rayOrigin, vec3 rayDir, int maxSteps){
+    ancestorstack.stackCount = 0u;
+    ancestorstack.lastChunkIndex = UINT32_MAX;
+    vec3 invDir = 1.0 / rayDir;
+    float tCurrent = 0.0;
+    int lastStepAxis = getAABBEntryAxis(rayOrigin, rayDir,invDir);
+    ivec3 step = ivec3(sign(rayDir));
+    ivec3 voxelPos = rayVoxelAt(rayOrigin, rayDir, tCurrent);
+    for (int step_count = 0; step_count < maxSteps; step_count++) {
+        ivec3 chunkPos = voxelPos >> 6;
+        ivec3 localPos = voxelPos - (chunkPos << 6);
+        int chunkIndex = findChunk(chunkPos);
+        if (chunkIndex < 0) break;
+        uint dirBase = directionMaskBase(rayDir);
+        traverseResult res = getVoxel(chunkIndex, localPos, dirBase);
+        if(res.voxelValue != 0u && res.voxelValue != 6u) {
+            // IMPORTANT, RIGHT NOW LEAVES ARE THE ONLY TRANSPARENT BLOCK AND THUS THIS IS HARDCODED. IF A TRANSPARENT BLOCK IS PRODUCING SHADOWS, THIS IS PROBABLY WHY.
+            if(res.voxelValue == 5u){
+            vec3 normal = vec3(0.0);
+            if (lastStepAxis >= 0) {
+                if (lastStepAxis == 0) normal.x = -float(step.x);
+                else if (lastStepAxis == 1) normal.y = -float(step.y);
+                else normal.z = -float(step.z);
+            } else {
+                vec3 a = abs(rayDir);
+                if (a.x >= a.y && a.x >= a.z) normal.x = -sign(rayDir.x);
+                else if (a.y >= a.z) normal.y = -sign(rayDir.y);
+                else normal.z = -sign(rayDir.z);
+            }
+            if(sampleVoxelTexture(res.voxelValue, rayOrigin + rayDir * tCurrent, normal, tCurrent).a > 0.01) {
+                return tCurrent;
+            }
+            }
+            else{
+                return tCurrent;
+                }
+
+        }
+        advanceToNodeExit(rayOrigin, rayDir, invDir, res.depth, voxelPos, tCurrent, lastStepAxis);
+    }
+    return -1.0;
+}
+RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool skipWater, int maxSteps) {
+
     ancestorstack.stackCount = 0u;
     ancestorstack.lastChunkIndex = UINT32_MAX;
 
     vec3 invDir = 1.0 / rayDir;
     float tCurrent = max(startT,chunkAABBIntersection(rayOrigin, rayDir,invDir));
-    if (tCurrent < 0.0) return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), false, vec3(0.0), vec3(0.0), 0.0, false);
+    if (tCurrent < 0.0) return RaytraceResult(0u, vec3(0.0), 0.0, vec3(0.0), false);
 
     int lastStepAxis = getAABBEntryAxis(rayOrigin, rayDir,invDir);
     ivec3 step = ivec3(sign(rayDir));
 
-    uint stepSize = 1;
-    ivec3 voxelPos;
-    vec3 tMax, tDelta;
-    rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
-    vec3 returnColor = vec3(1.0);
+    ivec3 voxelPos = rayVoxelAt(rayOrigin, rayDir, tCurrent);
     bool inWater = false;
-    float pathDistance = 0.0;
-    bool hitWater = false;
-    vec3 waterHitPos = vec3(0.0);
-    vec3 waterNormal = vec3(0.0);
-    float waterTHit = 0.0;
     bool passedThroughWater = false;
 	ivec3 cachedChunkPos = ivec3(0);
 	int cachedChunkIndex = -1;
 	bool hasCachedChunk = false;
-    for (int step_count = 0; step_count < MAX_STEPS; step_count++) {
+    uint dirBase = directionMaskBase(rayDir);
+    for (int step_count = 0; step_count < maxSteps; step_count++) {
         
-        ivec3 chunkPos = ivec3(
-            floor(float(voxelPos.x) / float(ubo.CHUNK_SIZE)),
-            floor(float(voxelPos.y) / float(ubo.CHUNK_SIZE)),
-            floor(float(voxelPos.z) / float(ubo.CHUNK_SIZE))
-        );
-        ivec3 localPos = voxelPos - chunkPos * int(ubo.CHUNK_SIZE);
-        if(tCurrent>maxDistance) break;
+        // CHUNK_SIZE is fixed at 64. Signed right shift gives floor division
+        // for negative coordinates without three int/float conversions and
+        // floor operations in the hottest traversal loop.
+        ivec3 chunkPos = voxelPos >> 6;
+        ivec3 localPos = voxelPos - (chunkPos << 6);
         if (!hasCachedChunk || any(notEqual(chunkPos, cachedChunkPos))) {
 			cachedChunkIndex = findChunk(chunkPos);
 			if (cachedChunkIndex < 0) break;
@@ -415,15 +493,11 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
 			hasCachedChunk = true;
 		}
         int chunkIndex = cachedChunkIndex;
-
-        traverseResult res = getVoxel(chunkIndex, localPos,tCurrent,rayDir);
-        uint newStepSize = depthToStepSize(res.depth);
-        if (newStepSize != stepSize) {
-            stepSize = newStepSize;
-            rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
-            continue;
-        }
-        
+        // Beam optimization is too coarse for distances above 400 voxels so it is stopped there.
+        traverseResult res = pushConstants.isBeam == 1u && tCurrent > 400.0
+            ? traverseResult(1u, 0u)
+            : getVoxel(chunkIndex, localPos, dirBase);
+        // Hit voxel logic
         if (res.voxelValue != 0u) {
             vec3 normal = vec3(0.0);
             if (lastStepAxis >= 0) {
@@ -438,98 +512,38 @@ RaytraceResult raytrace(vec3 rayOrigin, vec3 rayDir, float startT, bool occlusio
             }
 
             vec3 rayHitPos = rayOrigin + rayDir * tCurrent;
-            float rayDistance = pathDistance + tCurrent;
             // The full-resolution water path never consumes its voxel texture;
             // the low-resolution beam path still does.
             vec4 texColor = vec4(1.0);
 			if (res.voxelValue != 6u || pushConstants.isBeam == 1u) {
-				texColor = sampleVoxelTexture(res.voxelValue, rayHitPos, normal, rayDistance);
+				texColor = sampleVoxelTexture(res.voxelValue, rayHitPos, normal, tCurrent);
 			}
             if(res.voxelValue ==6){
                 passedThroughWater = true;
                 if(pushConstants.isBeam==1) {
-                    returnColor*=texColor.rgb;
-                    return RaytraceResult(res.voxelValue, normal, tCurrent, vec4(returnColor, 1.0), rayHitPos, true, rayHitPos, normal, tCurrent, true);
+                    return RaytraceResult(res.voxelValue, normal, tCurrent, texColor.rgb, true);
                 }
 
-                if(!occlusionOnly && !noReflect && !inWater) {
+                if(!skipWater && !inWater) {
                     if (lastStepAxis < 0 && tCurrent <= 0.001) {
                         inWater = true;
                     }
                     else {
-                    hitWater = true;
-                    waterHitPos = rayHitPos;
-vec3 geometricNormal = normal;
-// Quadratic LOD scaling from 1-16
-float t = sqrt(clamp(rayDistance / 200.0, 0.0, 1.0));
-int waterLOD = int(mix(16.0, 4.0, t));
-vec3 waveNormal = geometricNormal.y > 0.5
-    ? getNormal(rayHitPos.xz,waterLOD, 0.001)
-    : geometricNormal;
-
-// Reduce bump-normal strength.
-waterNormal = normalize(mix(geometricNormal, waveNormal, 0.25));
-
-vec3 reflectedDir = reflect(rayDir, waterNormal);
-
-// A bump normal must not send the ray below the actual flat geometry.
-float reflectedHeight = dot(reflectedDir, geometricNormal);
-if (reflectedHeight < 0.02) {
-    reflectedDir = normalize(
-        reflectedDir +
-        geometricNormal * (0.02 - reflectedHeight)
-    );
-}
-
-rayDir = reflectedDir;
-
-// Offset from the real surface, not along the potentially unstable ray.
-rayOrigin = rayHitPos + geometricNormal * 0.02;
-                    waterTHit = pathDistance + tCurrent;
-                    inWater = true;
-                    pathDistance += tCurrent + 0.01;
-                    ancestorstack.stackCount = 0u;
-                    ancestorstack.lastChunkIndex = UINT32_MAX;
-                    invDir = 1.0 / rayDir;
-                    tCurrent = max(0.0, chunkAABBIntersection(rayOrigin, rayDir, invDir));
-                    if (tCurrent < 0.0) {
-                        return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), hitWater, waterHitPos, waterNormal, waterTHit, passedThroughWater);
-                    }
-                    step = ivec3(sign(rayDir));
-                    stepSize = 1;
-                    lastStepAxis = getAABBEntryAxis(rayOrigin, rayDir, invDir);
-                    rebuildDDAForStepSize(rayOrigin, rayDir, tCurrent, stepSize, voxelPos, tMax, tDelta);
-                    continue;
+                        return RaytraceResult(res.voxelValue, normal, tCurrent, texColor.rgb, true);
                     }
                 }
             }
             else if (texColor.a > 0.01||pushConstants.isBeam==1) {
-                returnColor*=texColor.rgb;
-                return RaytraceResult(res.voxelValue, normal, pathDistance + tCurrent, vec4(returnColor, 1.0), rayHitPos, hitWater, waterHitPos, waterNormal, waterTHit, passedThroughWater);
+                return RaytraceResult(res.voxelValue, normal, tCurrent, texColor.rgb, passedThroughWater);
             }
         }
 
         
 
-        if (tMax.x <= tMax.y && tMax.x <= tMax.z) {
-            tCurrent = tMax.x;
-            voxelPos.x += step.x * int(stepSize);
-            tMax.x += tDelta.x;
-            lastStepAxis = 0;
-        } else if (tMax.y <= tMax.z) {
-            tCurrent = tMax.y;
-            voxelPos.y += step.y * int(stepSize);
-            tMax.y += tDelta.y;
-            lastStepAxis = 1;
-        } else {
-            tCurrent = tMax.z;
-            voxelPos.z += step.z * int(stepSize);
-            tMax.z += tDelta.z; 
-            lastStepAxis = 2;
-        }
+        advanceToNodeExit(rayOrigin, rayDir, invDir, res.depth, voxelPos, tCurrent, lastStepAxis);
         }
 
-    return RaytraceResult(0u, vec3(0.0), 0, vec4(0.0), vec3(0.0), hitWater, waterHitPos, waterNormal, waterTHit, passedThroughWater);
+    return RaytraceResult(0u, vec3(0.0), 0.0, vec3(0.0), passedThroughWater);
 }
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -592,13 +606,11 @@ float calculateAO(
     vec2 pixel,
     vec2 temporalJitter
 ) {
-    const int SAMPLE_COUNT = 1;
-    const float AO_RADIUS = 1.0;
+    const int SAMPLE_COUNT = 4;
+    const float AO_RADIUS = 3.0;
 
     float occlusion = 0.0;
     vec3 origin = hitPosition + normal * 0.02;
-    // Rotate a stratified sequence instead of generating every sample
-    // independently. This covers the hemisphere much more evenly.
     vec2 sequenceRotation = vec2(
         hash12(pixel + temporalJitter * 113.0),
         hash12(pixel.yx + temporalJitter * 271.0 + 19.0)
@@ -612,17 +624,10 @@ float calculateAO(
 
         vec3 direction = cosineHemisphere(normal, randomValue);
 
-        RaytraceResult aoHit = raytrace(
-            origin,
-            direction,
-            0.0,
-            true,
-            true,
-            AO_RADIUS
-        );
+        float aoDistance = raytraceAO(origin, direction, int(AO_RADIUS));
 
-        if (aoHit.voxelValue != 0u) {
-            float distanceWeight = 1.0 - smoothstep(0.0, AO_RADIUS, aoHit.tHit);
+        if (aoDistance >= 0.0) {
+            float distanceWeight = 1.0 - aoDistance / AO_RADIUS;
             occlusion += distanceWeight;
         }
     }
@@ -631,7 +636,7 @@ float calculateAO(
     ao = pow(clamp(ao, 0.0, 1.0), 3);
     return mix(0.01, 1.0, ao);
 }
-vec3 shadeRayResult(RaytraceResult result, vec3 skyColor, vec3 sunDir, vec2 pixel, bool castShadows, bool temporalAO) {
+vec3 shadeRayResult(RaytraceResult result,vec3 hitPos, vec3 skyColor, vec3 sunDir, vec2 pixel, bool castShadows, bool temporalAO) {
     if (result.voxelValue == 0u) return skyColor;
 
     vec3 normal = normalize(result.normal);
@@ -639,19 +644,19 @@ vec3 shadeRayResult(RaytraceResult result, vec3 skyColor, vec3 sunDir, vec2 pixe
     float sunVisible = 1.0;
 
     if (diffuse > 0.0 && castShadows) {
-        vec3 shadowOrigin = result.hitPos + normal * 0.002;
-        RaytraceResult sunRay = raytrace(shadowOrigin, sunDir, 0.0, true, true, 1000.0);
-        sunVisible = (sunRay.voxelValue == 0u) ? 1.0 : 0.0;
+        vec3 shadowOrigin = hitPos + normal * 0.002;
+        float shadowDistance = raytraceAO(shadowOrigin, sunDir, 64);
+        sunVisible = (shadowDistance < 0.0) ? 1.0 : 0.0;
     }
 float ao = calculateAO(
-    result.hitPos,
+    hitPos,
     normalize(result.normal),
     pixel,
     temporalAO ? ubo.jitter : vec2(0.0)
 );
 vec3 ambientLight = vec3(0.38, 0.40, 0.44);
     vec3 directLight =SUN_COLOR * (0.85 * diffuse * sunVisible);
-    return result.color.rgb * (ambientLight + directLight) * ao;
+    return result.color * (ambientLight + directLight) * ao;
 }
 
 vec3 aces_tonemap(vec3 color) {  
@@ -733,24 +738,26 @@ float diffuse(vec3 n,vec3 l,float p) {
 vec3 applyWaterAttenuation(vec3 incidentColor,vec3 waterColor, float waterDistance) {
     // Beer-Lambert extinction per world-space block. Red light is absorbed
     // fastest, which shifts distant objects toward blue/green.
-    const vec3 ABSORPTION = vec3(0.08, 0.05, 0.012)*3;
+    const vec3 ABSORPTION = vec3(0.012,0.05,0.08)*3;
 
     float distanceInWater = max(waterDistance, 0.0);
     vec3 transmittance = exp(-ABSORPTION * distanceInWater);
     return mix(waterColor, incidentColor, transmittance);
 }
-
+float getFresnel(vec3 normal, vec3 viewDir) {
+    float cosTheta = clamp(dot(normal, -viewDir), 0.0, 1.0);
+    const float WATER_F0 = 0.204;
+    return WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - cosTheta, 5.0);
+}
 vec3 colorWater(vec3 refractedColor, vec3 reflectedColor,vec3 normal,float waterDistance, vec3 sunDir, vec3 viewDir, vec2 pixel) {
       vec3 waterColor = SEA_BASE + diffuse(normal, sunDir, 80.0) * SEA_WATER_COLOR * 0.12; 
     vec3 attenuatedRefractedColor = applyWaterAttenuation(refractedColor,waterColor, waterDistance);
     
     
     
-    float cosTheta = clamp(dot(normal, -viewDir), 0.0, 1.0);
-    const float WATER_F0 = 0.0204;
-    float fresnel = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - cosTheta, 5.0);
+    float fresnel = getFresnel(normal, viewDir);
     vec3 color = mix(attenuatedRefractedColor, reflectedColor, fresnel);
-    color += specular(normal, sunDir, -viewDir, 0.2)*3;
+    //color += specular(normal, sunDir, -viewDir, 0.2)*3;
     return color;
 }
 void main()
@@ -759,8 +766,9 @@ ancestorstack.stackCount = 0u;
 ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size  = imageSize(img);
+    ivec2 outputSize = pushConstants.isBeam == 1u ? imageSize(beamImage) : size;
 
-    if (pixel.x >= size.x || pixel.y >= size.y)
+    if (pixel.x >= outputSize.x || pixel.y >= outputSize.y)
         return;
 
     vec2 currentUV = (vec2(pixel) + 0.5) / vec2(size);
@@ -788,20 +796,26 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
     vec3 rayOrigin = ubo.cameraPos;
     
     if(pushConstants.isBeam==1) {
-        RaytraceResult result = raytrace(rayOrigin, rayDir, 0.0, false, false, 1000.0);
+        RaytraceResult result = raytrace(rayOrigin, rayDir, 0.0, false, 1000);
         if(result.voxelValue != 0u) {
             imageStore(beamImage, pixel, vec4(result.tHit, 0.0, 0.0, 1.0));
         } else {
-            imageStore(beamImage, pixel, vec4(0.0, 0.0, 0.0, 1.0));
+            // Zero is a valid near distance and caused the full-resolution
+            // pass to restart at the camera whenever any corner beam missed.
+            imageStore(beamImage, pixel, vec4(1e30, 0.0, 0.0, 1.0));
         }
         return;
     }
+    ivec2 beamSize = imageSize(beamImage);
     ivec2 beamPixel = pixel / int(pushConstants.beamResolutionDivisor);
+    ivec2 beamPixelRight = min(beamPixel + ivec2(1, 0), beamSize - 1);
+    ivec2 beamPixelDown = min(beamPixel + ivec2(0, 1), beamSize - 1);
+    ivec2 beamPixelDiagonal = min(beamPixel + ivec2(1, 1), beamSize - 1);
     float cornerBeamTs[4] = {
         imageLoad(beamImage, beamPixel).r,
-        imageLoad(beamImage, beamPixel + ivec2(1, 0)).r,
-        imageLoad(beamImage, beamPixel + ivec2(0, 1)).r,
-        imageLoad(beamImage, beamPixel + ivec2(1, 1)).r
+        imageLoad(beamImage, beamPixelRight).r,
+        imageLoad(beamImage, beamPixelDown).r,
+        imageLoad(beamImage, beamPixelDiagonal).r
     };
     float beamT = 9999.0;
     for(int i=0;i<4;i++) {
@@ -811,27 +825,46 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
     }
     vec3 sunDir = normalize(vec3(0.5, 0.5, 0.5));
     vec3 skyColor = extra_cheap_atmosphere(rayDir,sunDir).bgr;
-    float startT = (beamT >= 0.0) ? beamT-1.0 : 0.0;
-    RaytraceResult result = raytrace(rayOrigin, rayDir, startT, false, false, 1000.0);
-    RaytraceResult refractedResult = RaytraceResult(0u, vec3(0.0), 0.0, vec4(0.0), vec3(0.0), false, vec3(0.0), vec3(0.0), 0.0, false);
+    float startT = beamT < 1e29 ? max(beamT - 1.0, 0.0) : 1000.0;
+    RaytraceResult result = raytrace(rayOrigin, rayDir, startT, false, 1000);
     vec3 shadowDir = sampleSunDirection(normalize(sunDir), vec2(pixel), ubo.jitter.xy);
     vec3 finalColor;
-    if (result.hitWater) {
-		vec3 waterNormal = result.waterNormal;
-//        const float AIR_TO_WATER_ETA = 1.0 / 1.333;
-//        vec3 refractedDir = refract(rayDir, result.waterNormal, AIR_TO_WATER_ETA);
-//        bool totalInternalReflection = dot(refractedDir, refractedDir) < 1e-8;
-//        if (!totalInternalReflection) {
-//            vec3 refractedOrigin = result.waterHitPos + refractedDir * 0.01;
-//            refractedResult = raytrace(refractedOrigin, refractedDir, 0.0, false, true);
-//        }
-        // Move into the water, not back into the air side of the interface.
-        refractedResult = raytrace(result.waterHitPos + rayDir * 0.01, rayDir, 0.0, false, true, 1000.0);
-        vec3 reflectedSkyColor = extra_cheap_atmosphere(reflect(rayDir, waterNormal), sunDir).bgr;
+    if (result.voxelValue == 6u) {
+        vec3 waterHitPos = rayOrigin + rayDir * result.tHit;
+        vec3 geometricNormal = result.normal;
+        float distFactor = clamp(result.tHit / 100.0, 0.0, 1.0);
+        float angleFactor = clamp(dot(-rayDir, geometricNormal), 0.5, 1.0);
+        int waterLOD = int(mix(4.0, 16.0, (1.0 - distFactor) * angleFactor));
+        vec3 waveNormal = geometricNormal.y > 0.5
+            ? getNormal(waterHitPos.xz, waterLOD, 0.001)
+            : geometricNormal;
+        vec3 waterNormal = normalize(mix(geometricNormal, waveNormal, 0.25));
+        vec3 reflectedDir = normalize(reflect(rayDir, normalize(mix(geometricNormal, waterNormal, 0.1))));
+
+        // Keep the reflection above the actual flat surface.
+        float reflectedHeight = dot(reflectedDir, geometricNormal);
+        if (reflectedHeight < 0.02) {
+            reflectedDir = normalize(reflectedDir + geometricNormal * (0.02 - reflectedHeight));
+        }
+
+        const float AIR_TO_WATER_ETA = 1.0 / 1.333;
+        vec3 refractedDir = normalize(refract(rayDir, waterNormal, AIR_TO_WATER_ETA));
+        vec3 reflectedColor;
+                vec3 reflectedSkyColor = extra_cheap_atmosphere(reflectedDir, sunDir).bgr;
+        if(getFresnel(waterNormal, rayDir) <0.3) {
+            reflectedColor = reflectedSkyColor;
+        }
+        else {
+                    RaytraceResult reflectedResult = raytrace(
+            waterHitPos+ geometricNormal * 0.02, reflectedDir, 0.0, true, 1000);
+            reflectedColor = shadeRayResult(reflectedResult,waterHitPos + geometricNormal * 0.02 + reflectedDir * reflectedResult.tHit, reflectedSkyColor, shadowDir, pixel, false, false);
+        }
+        RaytraceResult refractedResult = raytrace(
+            waterHitPos - geometricNormal * 0.02, refractedDir, 0.0, true, 1000);
+        vec3 refractedSkyColor = extra_cheap_atmosphere(refractedDir, sunDir).bgr;
         // Water bypasses TAA, so keep its AO sequence stable instead of
         // introducing frame-to-frame shimmer that cannot be accumulated.
-        vec3 reflectedColor = shadeRayResult(result, reflectedSkyColor, shadowDir, pixel, false, false);
-        vec3 refractedColor = shadeRayResult(refractedResult, skyColor, shadowDir, pixel, true, false);
+        vec3 refractedColor = shadeRayResult(refractedResult,waterHitPos - geometricNormal * 0.02 + refractedDir * refractedResult.tHit, refractedSkyColor, shadowDir, pixel, refractedResult.tHit < 30, false);
 
         // This secondary ray begins at the surface, so its hit distance is
         // the distance traveled through the water to the refracted hit.
@@ -839,22 +872,35 @@ ancestorstack.lastChunkIndex = 0xffffffffu; // invalid index
             ? refractedResult.tHit
             : 0.0;
         finalColor = colorWater(refractedColor, reflectedColor, waterNormal, waterDistance, sunDir, rayDir, vec2(pixel));
-        result.tHit = result.waterTHit;
+        // Apply distance fog
+        finalColor = mix(finalColor, skyColor, 1.0 - exp(-result.tHit * 0.0006));
     }
     else if (result.voxelValue != 0u) {
-        vec3 litColor = shadeRayResult(result, skyColor, shadowDir, pixel, true, true);
+        float horizontalDistance = length(rayOrigin.xz - (rayOrigin + rayDir * result.tHit).xz);
+        // If the voxel is too far away, don't cast shadows. Adjust for height as it's easier to notice the shadow seam when high up
+        bool castShadows = (horizontalDistance - rayOrigin.y*2.0) < 0.0;
+        vec3 litColor = shadeRayResult(result,rayOrigin + rayDir * result.tHit, skyColor, shadowDir, pixel, castShadows, true);
         if (result.passedThroughWater) {
             // Rays beginning underwater do not cross the reflective surface,
             // but they still lose light over the path to the visible object.
-                  vec3 waterColor = SEA_BASE + diffuse(result.waterNormal, sunDir, 80.0) * SEA_WATER_COLOR * 0.12; 
+            // Preserve the neutral normal used when starting underwater.
+            vec3 waterColor = SEA_BASE + diffuse(vec3(0.0), sunDir, 80.0) * SEA_WATER_COLOR * 0.12;
             litColor = applyWaterAttenuation(litColor,waterColor, result.tHit);
         }
         finalColor = litColor;
-
+        // Apply distance fog
+        if(!result.passedThroughWater){
+            finalColor = mix(finalColor, skyColor, 1.0 - exp(-result.tHit * 0.0006));
+        }
     }
     else {
         result.tHit=999.0;
         finalColor = skyColor;
+        if(result.passedThroughWater) {
+            vec3 waterColor = SEA_BASE + diffuse(vec3(0.0), sunDir, 80.0) * SEA_WATER_COLOR * 0.12;
+            finalColor = applyWaterAttenuation(skyColor,waterColor, result.tHit);
+        }
+        
     }
     imageStore(img, pixel, vec4(aces_tonemap(finalColor), 1.0));
     vec4 prevClip = ubo.previousProj * ubo.previousView * vec4(rayOrigin + rayDir * result.tHit, 1.0);
